@@ -16,8 +16,27 @@ export const dynamic = "force-dynamic"; // detail + episode list cached 1h in no
 export async function generateMetadata({ params }: { params: { slug: string } }) {
   try {
     const { data } = await getAnimeDetail(params.slug);
-    return { title: prettyTitle(data.title) };
-  } catch { return { title: "Anime" }; }
+    const title = prettyTitle(data.title);
+    const desc = data.synopsis?.paragraphs?.join(" ")?.slice(0, 160) || `Nonton anime ${title} subtitle Indonesia di FazurAnime.`;
+    const image = `/api/poster?title=${encodeURIComponent(data.title)}&fallback=${encodeURIComponent(data.poster || "")}`;
+    return {
+      title,
+      description: desc,
+      openGraph: {
+        title: `${title} | FazurAnime`,
+        description: desc,
+        images: [{ url: image }],
+      },
+      twitter: {
+        card: "summary_large_image",
+        title: `${title} | FazurAnime`,
+        description: desc,
+        images: [image],
+      },
+    };
+  } catch {
+    return { title: "Anime" };
+  }
 }
 
 function MetaRow({ icon: Icon, label, value }: {

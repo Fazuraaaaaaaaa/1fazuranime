@@ -135,7 +135,7 @@ function ContinueTab({
             </div>
             <Button asChild size="sm" className="shrink-0 gap-1.5">
               <Link href={`/watch/${h.episodeId}`}>
-                <Play className="h-3.5 w-3.5" /> Resume
+                <Play className="h-3.5 w-3.5" /> Lanjut
               </Link>
             </Button>
             <button
