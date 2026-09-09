@@ -2,7 +2,9 @@ import { notFound } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { Star, Clock, Calendar, Tv, Building, PlayCircle } from "lucide-react";
-import { getAnimeDetail } from "@/lib/api";
+import { getAnimeDetail, getGenreAnime } from "@/lib/api";
+import type { AnimeCard } from "@/lib/types";
+import { buildGenreRecommendations, GENRE_SOURCES } from "@/lib/recommendations";
 import { prettyTitle, posterSrc } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -63,6 +65,23 @@ export default async function AnimeDetailPage({ params }: { params: { slug: stri
 
   const firstEp = anime.episodeList?.at(-1) ?? anime.episodeList?.[0];
   const paragraphs = anime.synopsis?.paragraphs ?? [];
+
+  // Recommended — ranked by genre overlap with this anime (top genre listing
+  // pages are shared across anime and cached, so this is quota-cheap).
+  const recGenres = (anime.genreList ?? []).slice(0, GENRE_SOURCES);
+  const genreGroups = await Promise.all(
+    recGenres.map((g) =>
+      getGenreAnime(g.genreId)
+        .then((r) => r.data.animeList ?? [])
+        .catch(() => [] as AnimeCard[]),
+    ),
+  );
+  const recommendations = buildGenreRecommendations({
+    currentSlug: params.slug,
+    currentGenres: anime.genreList ?? [],
+    groups: genreGroups,
+    fallback: anime.recommendedAnimeList ?? [],
+  });
 
   return (
     <div className="pb-12">
@@ -144,10 +163,19 @@ export default async function AnimeDetailPage({ params }: { params: { slug: stri
           <EpisodeList episodes={anime.episodeList ?? []} />
         </section>
 
-        {anime.recommendedAnimeList && anime.recommendedAnimeList.length > 0 && (
+        {recommendations.length > 0 && (
           <section className="mt-10">
-            <SectionHeader title="Recommended" />
-            <AnimeGrid animeList={anime.recommendedAnimeList} />
+            <SectionHeader title="Rekomendasi Sejenis">
+              {recGenres.length > 0 && (
+                <div className="hidden items-center gap-1.5 md:flex">
+                  <span className="text-xs text-muted-foreground">Berdasarkan genre:</span>
+                  {recGenres.map(g => (
+                    <Badge key={g.genreId} variant="outline" className="text-[10px] uppercase font-normal">{g.title}</Badge>
+                  ))}
+                </div>
+              )}
+            </SectionHeader>
+            <AnimeGrid animeList={recommendations} />
           </section>
         )}
       </div>
