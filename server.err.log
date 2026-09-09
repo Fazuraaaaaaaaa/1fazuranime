@@ -1,0 +1,6 @@
+i [UpstreamError]: Upstream HTTP 500
+    at h (C:\website anime\.next\server\chunks\750.js:1:8475)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  status: 500,
+  retryAfterSec: undefined
+}
