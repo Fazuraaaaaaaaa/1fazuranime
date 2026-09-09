@@ -13,7 +13,7 @@ import { cache } from "./cache";
 import type { ApiEnvelope } from "./types";
 
 const BASE = process.env.UPSTREAM_API_BASE ?? "https://www.sankavollerei.web.id/anime";
-const UA = process.env.UPSTREAM_USER_AGENT ?? "FazurAnime/1.0";
+const UA = process.env.UPSTREAM_USER_AGENT ?? "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const PER_MIN = Number(process.env.RATE_LIMIT_PER_MIN ?? 50);
 const STALE_FACTOR = Number(process.env.CACHE_STALE_FACTOR ?? 6);
 const TIMEOUT_MS = 15_000;
