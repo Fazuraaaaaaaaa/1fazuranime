@@ -78,6 +78,7 @@ export default async function AnimeDetailPage({ params }: { params: { slug: stri
   );
   const recommendations = buildGenreRecommendations({
     currentSlug: params.slug,
+    currentTitle: anime.title,
     currentGenres: anime.genreList ?? [],
     groups: genreGroups,
     fallback: anime.recommendedAnimeList ?? [],

@@ -1,15 +1,8 @@
 // ---------------------------------------------------------------------------
 // Genre-based recommendations for the anime detail page.
 //
-// Upstream's `recommendedAnimeList` is a generic "anime lain" dump that often
-// ignores the title's actual genres. Instead we pull the genre listing pages
-// for the current anime's top genres and rank those candidates by how many
-// genres they share with it (ties broken by score). The upstream list is kept
-// only as a top-up so the section is never empty.
-//
-// Upstream budget: max GENRE_SOURCES list pages per detail view, but genre
-// pages are shared across many anime and cached (LIST TTL), so the amortized
-// cost per unique view is well under one extra upstream call.
+// Ranked by weighted cosine similarity of genres, with bonus modifiers for
+// rating, and basic title similarity (for picking up sequels/spin-offs).
 // ---------------------------------------------------------------------------
 
 import type { AnimeCard, GenreRef } from "./types";
@@ -21,15 +14,50 @@ function genreKey(g: GenreRef): string {
   return (g.genreId || g.title || "").toLowerCase();
 }
 
-function sharedGenres(current: Set<string>, candidate: AnimeCard): number {
-  let n = 0;
-  for (const g of candidate.genreList ?? []) if (current.has(genreKey(g))) n++;
-  return n;
+/** Get standardized words from a title > 4 chars to find related seasons */
+function titleTokens(title: string): Set<string> {
+  const words = (title || "").toLowerCase().replace(/[^a-z0-9]/g, " ").split(/\s+/);
+  return new Set(words.filter(w => w.length > 4));
 }
 
 function ratingOf(c: AnimeCard): number {
   const n = Number.parseFloat(c.score ?? "");
-  return Number.isFinite(n) ? n : 0;
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * Calculates a relevance score:
+ * - Cosine similarity of genres (0.0 to 1.0) * 10
+ * - Score bonus: (score - 6) / 2 [max ~2.0]
+ * - Title match bonus: +3 per shared word (season/sequel detector)
+ */
+function calculateScore(
+  candidate: AnimeCard,
+  baseKeys: Set<string>,
+  baseTokens: Set<string>,
+): number {
+  // 1. Genre Overlap
+  const candKeys = candidate.genreList?.map(genreKey) ?? [];
+  let overlap = 0;
+  for (const k of candKeys) if (baseKeys.has(k)) overlap++;
+  
+  let genreScore = 0;
+  if (baseKeys.size > 0 && candKeys.length > 0) {
+    // Cosine similarity: (A \cdot B) / (||A|| * ||B||)
+    const similarity = overlap / Math.sqrt(baseKeys.size * candKeys.length);
+    genreScore = similarity * 10;
+  }
+
+  // 2. Rating Bonus
+  const r = ratingOf(candidate);
+  const ratingBonus = r > 6 ? (r - 6) * 0.5 : 0;
+
+  // 3. Title Token Match
+  let titleBonus = 0;
+  const candTokens = titleTokens(candidate.title);
+  for (const t of Array.from(candTokens)) if (baseTokens.has(t)) titleBonus += 3;
+
+  return genreScore + ratingBonus + titleBonus;
 }
 
 /** Merge genre pages round-robin so one genre can't dominate the result. */
@@ -44,27 +72,30 @@ function interleave(groups: AnimeCard[][]): AnimeCard[] {
 
 export function buildGenreRecommendations(params: {
   currentSlug: string;
+  currentTitle: string;
   currentGenres: GenreRef[];
-  /** Candidate lists, one per genre page (interleaved before ranking). */
   groups: AnimeCard[][];
-  /** Upstream recommendations used only to top up when candidates run dry. */
   fallback?: AnimeCard[];
   limit?: number;
 }): AnimeCard[] {
-  const { currentSlug, currentGenres, groups, fallback = [], limit = DEFAULT_LIMIT } = params;
-  const keys = new Set(currentGenres.map(genreKey));
-  const seen = new Set<string>([currentSlug]); // never recommend the page itself
-  const scored: { card: AnimeCard; shared: number }[] = [];
+  const { currentSlug, currentTitle, currentGenres, groups, fallback = [], limit = DEFAULT_LIMIT } = params;
+  
+  const baseKeys = new Set(currentGenres.map(genreKey));
+  const baseTokens = titleTokens(currentTitle);
+  const seen = new Set<string>([currentSlug]);
+  const scored: { card: AnimeCard; score: number }[] = [];
 
   for (const card of interleave(groups)) {
     if (!card?.animeId || seen.has(card.animeId)) continue;
     seen.add(card.animeId);
-    scored.push({ card, shared: sharedGenres(keys, card) });
+    scored.push({ card, score: calculateScore(card, baseKeys, baseTokens) });
   }
 
-  scored.sort((a, b) => b.shared - a.shared || ratingOf(b.card) - ratingOf(a.card));
+  // Sort descending by our computed similarity score
+  scored.sort((a, b) => b.score - a.score || ratingOf(b.card) - ratingOf(a.card));
   const out = scored.slice(0, limit).map((s) => s.card);
 
+  // Top-up with fallback if we haven't hit the limit
   if (out.length < limit) {
     for (const f of fallback) {
       if (out.length >= limit) break;
