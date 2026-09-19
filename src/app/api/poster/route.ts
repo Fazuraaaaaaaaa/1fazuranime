@@ -455,6 +455,62 @@ function placeholder(title: string) {
   });
 }
 
+import dns from "dns/promises";
+
+async function isAllowedFallback(url: string): Promise<boolean> {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    
+    // Whitelist domains (allow subdomains)
+    const allowedDomains = [
+      "otakudesu.cloud",
+      "otakudesu.ltd",
+      "otakudesu.cam",
+      "otakudesu.cc",
+      "otakudesu.bid",
+      "otakudesu.wiki",
+      "otakudesu.blog",
+      "otakudesu.vip",
+      "otakudesu.net",
+      "otakudesu.org",
+      "jikan.moe",
+      "kitsu.io",
+      "kitsu.app",
+      "sankavollerei.web.id"
+    ];
+    
+    const isDomainAllowed = allowedDomains.some(
+      domain => hostname === domain || hostname.endsWith(`.${domain}`)
+    ) || hostname.includes("otakudesu");
+    
+    if (!isDomainAllowed) return false;
+
+    // Block private/internal IPs to prevent SSRF
+    const lookup = await dns.lookup(hostname);
+    const ip = lookup.address;
+    
+    const ipv4Match = ip.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+    if (ipv4Match) {
+      const parts = ipv4Match.slice(1).map(Number);
+      if (parts[0] === 10) return false;
+      if (parts[0] === 127) return false;
+      if (parts[0] === 192 && parts[1] === 168) return false;
+      if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return false;
+      if (parts[0] === 169 && parts[1] === 254) return false;
+      if (parts[0] === 0) return false;
+    }
+    
+    if (ip === "::1" || ip.toLowerCase().startsWith("fc") || ip.toLowerCase().startsWith("fd") || ip.toLowerCase().startsWith("fe80")) {
+      return false;
+    }
+
+    return true;
+  } catch {
+    return false; // Invalid URL or DNS lookup failed
+  }
+}
+
 /**
  * Proxy the upstream image server-side. The host blocks browser hotlinking
  * (Referer check) but plain server-side requests pass — so if metadata
@@ -463,19 +519,32 @@ function placeholder(title: string) {
  */
 async function proxyUpstreamImage(url: string): Promise<NextResponse | null> {
   try {
+    if (!(await isAllowedFallback(url))) return null;
+
     const upstream = await fetch(url, {
       headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
       cache: "no-store",
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(5000), // 5 seconds timeout
     });
     if (!upstream.ok || !upstream.headers.get("content-type")?.startsWith("image/")) return null;
+    
+    // Limit file size to 5MB
+    const contentLength = upstream.headers.get("content-length");
+    if (contentLength && parseInt(contentLength, 10) > 5 * 1024 * 1024) {
+      return null;
+    }
+
     const body = await upstream.arrayBuffer();
+    if (body.byteLength > 5 * 1024 * 1024) {
+      return null;
+    }
+    
     return new NextResponse(body, {
       status: 200,
       headers: {
         "content-type": upstream.headers.get("content-type") ?? "image/jpeg",
-        // images are immutable — cache hard on both ends
-        "cache-control": "public, max-age=604800, stale-while-revalidate=86400",
+        // edge cache / CDN cache + browser cache
+        "cache-control": "public, s-maxage=604800, max-age=604800, stale-while-revalidate=86400",
       },
     });
   } catch {
