@@ -60,7 +60,10 @@ export default async function AnimeDetailPage({ params }: { params: { slug: stri
   // Upstream 404 (unknown slug) arrives as a thrown UpstreamError — map it to notFound().
   const anime = await getAnimeDetail(params.slug)
     .then((r) => r.data)
-    .catch(() => null);
+    .catch((err) => {
+      if (err?.status === 404) return null;
+      throw err;
+    });
   if (!anime?.title) notFound();
 
   const firstEp = anime.episodeList?.at(-1) ?? anime.episodeList?.[0];

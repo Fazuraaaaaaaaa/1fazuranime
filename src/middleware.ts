@@ -6,7 +6,8 @@ const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 
 export function middleware(request: NextRequest) {
   if (request.nextUrl.pathname.startsWith('/api/')) {
-    const ip = request.ip || request.headers.get('x-forwarded-for') || '127.0.0.1';
+    const forwarded = request.headers.get('x-forwarded-for');
+    const ip = request.ip || (forwarded ? forwarded.split(',')[0].trim() : '127.0.0.1');
     
     // Set a generous limit because /api/poster is called for every image on the page
     const limit = 500; // 500 requests per minute per IP

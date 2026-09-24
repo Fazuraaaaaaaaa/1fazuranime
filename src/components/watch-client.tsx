@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -135,7 +135,8 @@ export function WatchClient({ episode, episodes, slug, groups }: Props) {
             title={episode.title}
             className="aspect-video w-full"
             allowFullScreen
-            allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+            referrerPolicy="no-referrer"
+                        allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
           />
         ) : busy ? (
           <div className="flex aspect-video w-full items-center justify-center text-muted-foreground">

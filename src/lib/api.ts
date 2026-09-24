@@ -164,6 +164,27 @@ const EMBED_PATTERNS = [
       return m ? `https://mega.nz/embed/${m[1]}#${m[2]}` : u;
     },
   },
+  {
+    test: /^https?:\/\/(?:www\.)?pixeldrain\.com\/u\/([\w-]+)/i,
+    toEmbed: (u: string) => {
+      const m = u.match(/pixeldrain\.com\/u\/([\w-]+)/i);
+      return m ? `https://pixeldrain.com/e/${m[1]}` : u;
+    },
+  },
+  {
+    test: /^https?:\/\/(?:drive|docs)\.google\.com\/file\/d\/([\w-]+)/i,
+    toEmbed: (u: string) => {
+      const m = u.match(/\/file\/d\/([\w-]+)/i);
+      return m ? `https://drive.google.com/file/d/${m[1]}/preview` : u;
+    },
+  },
+  {
+    test: /^https?:\/\/(?:www\.)?mp4upload\.com\/([\w-]+)/i,
+    toEmbed: (u: string) => {
+      const m = u.match(/mp4upload\.com\/([\w-]+)/i);
+      return m ? `https://www.mp4upload.com/embed-${m[1]}.html` : u;
+    },
+  },
 ] as const;
 
 export interface ResolvedEmbed {
@@ -243,6 +264,23 @@ function refreshExternal(key: string, target: string): Promise<ResolvedEmbed> {
       throw new Error(`${neg.host} tidak mendukung embed player`);
     }
     const out: ResolvedEmbed = { url: pattern.toEmbed(finalUrl), host: hostOf(finalUrl) };
+    
+    // Validate if the embed is actually alive (Pixeldrain/Mega/etc often have dead links)
+    try {
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), 4000);
+      const probe = await fetch(out.url, { method: "HEAD", signal: ac.signal }).finally(() => clearTimeout(timer));
+      if (probe.status === 404) {
+        const neg: ResolvedEmbed = { url: "", host: hostOf(finalUrl) };
+        cache.set(key, neg, 600, 3600);
+        throw new Error(`${neg.host} file not found (404)`);
+      }
+    } catch (err: any) {
+      if (err.message.includes("404")) throw err;
+      // If HEAD fails due to CORS/network/timeout, we still optimistically return the URL 
+      // rather than breaking working servers that block HEAD requests.
+    }
+
     cache.set(key, out, TTL.SERVER, TTL.SERVER * 5);
     return out;
   })();

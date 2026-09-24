@@ -1,3 +1,11 @@
+// Node ≥ 17 changed the default DNS resolution order to "ipv4first".
+// On networks where IPv4 to Cloudflare times out but IPv6 works fine,
+// this causes `fetch failed – ConnectTimeoutError`.  Setting "verbatim"
+// lets the OS resolver decide the address order (usually IPv6-first),
+// which fixes the upstream API connection on such networks.
+import dns from "node:dns";
+dns.setDefaultResultOrder("verbatim");
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,

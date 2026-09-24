@@ -19,8 +19,9 @@ export default async function WatchPage({ params }: Props) {
   let episode;
   try {
     episode = (await getEpisode(params.slug)).data;
-  } catch {
-    notFound();
+  } catch (err: any) {
+    if (err?.status === 404) notFound();
+    throw err;
   }
 
   // Playlist: prefer the embedded parent info, otherwise fetch the anime detail

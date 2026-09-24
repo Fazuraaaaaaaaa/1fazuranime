@@ -9,6 +9,9 @@
 //   5. Request timeout via AbortController
 // ---------------------------------------------------------------------------
 
+import dns from "node:dns";
+dns.setDefaultResultOrder("verbatim");
+
 import { cache } from "./cache";
 import type { ApiEnvelope } from "./types";
 
@@ -54,7 +57,10 @@ async function rawFetch<T>(path: string): Promise<ApiEnvelope<T>> {
       signal: ac.signal,
       cache: "no-store",
     });
-  } catch (err) {
+  } catch (err: any) {
+    if (ac.signal.aborted) {
+      throw new UpstreamError("Upstream request timed out (15s)", 504);
+    }
     throw new UpstreamError(err instanceof Error ? err.message : "network error", 0);
   } finally {
     clearTimeout(timer);

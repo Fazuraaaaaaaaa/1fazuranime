@@ -7,6 +7,7 @@ describe("sanitizeWatchServers", () => {
     const mockEpisode: EpisodeData = {
       title: "Test Episode",
       animeId: "test-slug",
+      defaultStreamingUrl: "",
       server: {
         qualities: [
           {
@@ -21,6 +22,8 @@ describe("sanitizeWatchServers", () => {
       },
       hasPrevEpisode: false,
       hasNextEpisode: false,
+      prevEpisode: null,
+      nextEpisode: null,
     };
 
     const groups = sanitizeWatchServers(mockEpisode);
@@ -34,6 +37,7 @@ describe("sanitizeWatchServers", () => {
     const mockEpisode: EpisodeData = {
       title: "Test Episode",
       animeId: "test-slug",
+      defaultStreamingUrl: "",
       server: {
         qualities: [
           {
@@ -46,6 +50,7 @@ describe("sanitizeWatchServers", () => {
         qualities: [
           {
             title: "MKV 1080p",
+            size: "1 GB",
             urls: [
               { title: "Filedon", url: "https://filedon.co/view/123" },
               { title: "Mega", url: "https://mega.nz/file/abc#key" },
@@ -55,6 +60,8 @@ describe("sanitizeWatchServers", () => {
       },
       hasPrevEpisode: false,
       hasNextEpisode: false,
+      prevEpisode: null,
+      nextEpisode: null,
     };
 
     const groups = sanitizeWatchServers(mockEpisode);
