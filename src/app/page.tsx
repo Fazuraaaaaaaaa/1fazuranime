@@ -13,10 +13,14 @@ import { ContinueWatchingSection } from "@/components/continue-watching-section"
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const [home, completed] = await Promise.all([getHome(), getCompleted(1)]);
+  // Keep the shell usable when one upstream section is temporarily unavailable.
+  const [home, completed] = await Promise.all([
+    getHome().catch(() => null),
+    getCompleted(1).catch(() => null),
+  ]);
 
-  const ongoing = home.data.ongoing?.animeList ?? [];
-  const done = completed.data.animeList ?? [];
+  const ongoing = home?.data.ongoing?.animeList ?? [];
+  const done = completed?.data.animeList ?? [];
   const featured = ongoing.slice(0, 6);
 
   return (

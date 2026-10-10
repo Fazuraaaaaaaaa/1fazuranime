@@ -46,37 +46,55 @@ function acquireSlot(): { waitMs: number } | { cooldownMs: number } | null {
 }
 
 // ---- 2. Raw upstream fetch with timeout -----------------------------------
+const RETRYABLE_STATUS = new Set([0, 500, 502, 503, 504]);
+const RETRY_DELAY_MS = 500;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function rawFetch<T>(path: string): Promise<ApiEnvelope<T>> {
   const url = `${BASE.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), TIMEOUT_MS);
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      headers: { accept: "application/json", "user-agent": UA },
-      signal: ac.signal,
-      cache: "no-store",
-    });
-  } catch (err: any) {
-    if (ac.signal.aborted) {
-      throw new UpstreamError("Upstream request timed out (15s)", 504);
+  let lastError: UpstreamError | null = null;
+
+  // A single retry protects rendering from transient upstream 5xx responses
+  // without adding enough traffic to endanger the upstream rate limit.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), TIMEOUT_MS);
+    try {
+      const res = await fetch(url, {
+        headers: { accept: "application/json", "user-agent": UA },
+        signal: ac.signal,
+        cache: "no-store",
+      });
+
+      if (res.status === 429) {
+        const ra = Number(res.headers.get("retry-after") ?? 60);
+        const waitSec = Number.isFinite(ra) && ra > 0 ? Math.min(ra, 120) : 60;
+        rate.cooldownUntil = Date.now() + waitSec * 1000;
+        throw new UpstreamError("Upstream rate limit (429)", 429, waitSec);
+      }
+
+      const body = (await res.json()) as ApiEnvelope<T>;
+      const payloadStatus = typeof body.statusCode === "number" ? body.statusCode : undefined;
+      if (!res.ok || body.ok === false || (payloadStatus !== undefined && payloadStatus >= 400)) {
+        // Some upstream errors arrive as HTTP 500 with a JSON statusCode (for
+        // example 404). Preserve the actual payload status for callers.
+        throw new UpstreamError(body.message || `Upstream HTTP ${res.status}`, payloadStatus ?? res.status);
+      }
+      return body;
+    } catch (err) {
+      lastError = err instanceof UpstreamError
+        ? err
+        : new UpstreamError(ac.signal.aborted ? "Upstream request timed out (15s)" : err instanceof Error ? err.message : "network error", ac.signal.aborted ? 504 : 0);
+
+      if (!RETRYABLE_STATUS.has(lastError.status) || attempt === 1) throw lastError;
+      await sleep(RETRY_DELAY_MS);
+    } finally {
+      clearTimeout(timer);
     }
-    throw new UpstreamError(err instanceof Error ? err.message : "network error", 0);
-  } finally {
-    clearTimeout(timer);
   }
-  if (res.status === 429) {
-    const ra = Number(res.headers.get("retry-after") ?? 60);
-    const waitSec = Number.isFinite(ra) && ra > 0 ? Math.min(ra, 120) : 60;
-    rate.cooldownUntil = Date.now() + waitSec * 1000;
-    throw new UpstreamError("Upstream rate limit (429)", 429, waitSec);
-  }
-  if (!res.ok) throw new UpstreamError(`Upstream HTTP ${res.status}`, res.status);
-  const body = (await res.json()) as ApiEnvelope<T>;
-  if (body.ok === false || body.statusCode >= 400) {
-    throw new UpstreamError(body.message || "upstream returned error payload", body.statusCode ?? 500);
-  }
-  return body;
+
+  throw lastError ?? new UpstreamError("Upstream unavailable", 502);
 }
 
 // ---- 3. SWR + single-flight + 429 fallback wrapper -------------------------

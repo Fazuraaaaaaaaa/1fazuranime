@@ -14,18 +14,18 @@ export default async function CompletedPage({
   searchParams: { page?: string };
 }) {
   const page = Math.max(1, Number(searchParams.page ?? 1) || 1);
-  const { data, pagination } = await getCompleted(page);
+  const result = await getCompleted(page).catch(() => null);
 
   return (
     <div className="container py-8">
       <SectionHeader title="Completed Anime" className="mb-6">
         <Badge variant="secondary">Page {page}</Badge>
       </SectionHeader>
-      <AnimeGrid animeList={data.animeList ?? []} />
+      <AnimeGrid animeList={result?.data.animeList ?? []} />
       <PaginationNav
-        currentPage={pagination?.currentPage ?? page}
-        hasNextPage={pagination?.hasNextPage ?? false}
-        hasPrevPage={pagination?.hasPrevPage ?? false}
+        currentPage={result?.pagination?.currentPage ?? page}
+        hasNextPage={result?.pagination?.hasNextPage ?? false}
+        hasPrevPage={result?.pagination?.hasPrevPage ?? false}
         basePath="/completed"
       />
     </div>
