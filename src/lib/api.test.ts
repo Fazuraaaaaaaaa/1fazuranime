@@ -3,7 +3,7 @@ import { sanitizeWatchServers } from "./api";
 import type { EpisodeData } from "./types";
 
 describe("sanitizeWatchServers", () => {
-  it("keeps Mega as the only native streaming server", () => {
+  it("keeps non-blocked native streaming servers", () => {
     const mockEpisode: EpisodeData = {
       title: "Test Episode",
       animeId: "test-slug",
@@ -15,6 +15,7 @@ describe("sanitizeWatchServers", () => {
             serverList: [
               { serverId: "srv-1", title: " Mega ", href: "https://mega.nz" },
               { serverId: "srv-2", title: "vidhide", href: "https://vidhide.com" },
+              { serverId: "srv-4", title: "  1080p Mirror  ", href: "https://mirror.example/1080" },
               { serverId: "srv-3", title: "odstream", href: "https://odstream.com" },
             ],
           },
@@ -31,10 +32,12 @@ describe("sanitizeWatchServers", () => {
     expect(groups[0].title).toBe("720p");
     expect(groups[0].servers).toEqual([
       { kind: "server", serverId: "srv-1", title: "Mega", href: "https://mega.nz" },
+      { kind: "server", serverId: "srv-2", title: "vidhide", href: "https://vidhide.com" },
+      { kind: "server", serverId: "srv-4", title: "1080p Mirror", href: "https://mirror.example/1080" },
     ]);
   });
 
-  it("adds only the Mega 1080p server when it is available", () => {
+  it("adds supported 1080p download hosts when native 1080p is unavailable", () => {
     const mockEpisode: EpisodeData = {
       title: "Test Episode",
       animeId: "test-slug",
@@ -70,6 +73,12 @@ describe("sanitizeWatchServers", () => {
     const g1080 = groups.find((g) => g.title === "1080p");
     expect(g1080).toBeDefined();
     expect(g1080?.servers).toEqual([
+      {
+        kind: "ext",
+        serverId: "ext:https://filedon.co/view/123",
+        title: "Filedon",
+        href: "https://filedon.co/view/123",
+      },
       {
         kind: "ext",
         serverId: "ext:https://mega.nz/file/abc#key",
