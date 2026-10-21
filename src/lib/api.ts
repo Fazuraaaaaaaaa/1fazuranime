@@ -314,29 +314,25 @@ export function isMegaTitle(title: string): boolean {
 export function sanitizeWatchServers(episode: EpisodeData): WatchQualityGroup[] {
   const groups: WatchQualityGroup[] = [];
 
-  // Keep every native server returned by Otakudesu, including native 1080p.
-  // The client probes each URL and removes dead/blocked mirrors before display.
+  // Only expose Mega as the single supported streaming server.
   for (const q of episode.server?.qualities ?? []) {
-    const seen = new Set<string>();
     const servers: WatchServerOption[] = q.serverList
-      .filter((s) => !STREAM_BLOCKLIST.test(`${s.title} ${s.serverId}`) && !seen.has(s.serverId))
-      .map((s) => {
-        seen.add(s.serverId);
-        return { kind: "server" as const, serverId: s.serverId, title: s.title.trim(), href: s.href };
-      });
+      .filter((s) => isMegaTitle(s.title) && !STREAM_BLOCKLIST.test(s.title))
+      .slice(0, 1)
+      .map((s) => ({ kind: "server" as const, serverId: s.serverId, title: "Mega", href: s.href }));
     if (servers.length > 0) groups.push({ title: q.title, servers });
   }
 
-  // If no native 1080p exists, expose supported 1080p download hosts as embeds.
+  // Add a single Mega 1080p option when the upstream exposes one.
   if (!groups.some((g) => /1080/i.test(g.title)) && episode.downloadUrl?.qualities) {
     const seen = new Set<string>();
     const servers: WatchServerOption[] = [];
     for (const d of episode.downloadUrl.qualities) {
       if (!/1080/i.test(d.title)) continue;
       for (const u of d.urls) {
-        if (seen.has(u.url) || !EMBED_PATTERNS.some((pattern) => pattern.test.test(u.url))) continue;
+        if (!isMegaTitle(u.title) || seen.has(u.url)) continue;
         seen.add(u.url);
-        servers.push({ kind: "ext", serverId: `ext:${u.url}`, title: u.title.trim(), href: u.url });
+        servers.push({ kind: "ext", serverId: `ext:${u.url}`, title: "Mega", href: u.url });
       }
     }
     if (servers.length > 0) groups.push({ title: "1080p", servers });
