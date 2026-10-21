@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Flame, Sparkles } from "lucide-react";
+import { Flame, Sparkles, Tags } from "lucide-react";
 import { getHome, getCompleted } from "@/lib/api";
 import { HeroCarousel } from "@/components/hero-carousel";
 import { AnimeGrid } from "@/components/anime-grid";
@@ -30,6 +30,27 @@ export default async function HomePage() {
       <div className="container mt-8 space-y-10">
         {/* Continue Watching / History */}
         <ContinueWatchingSection />
+
+        {/* Genre shortcut */}
+        <section className="rounded-xl border bg-card/50 p-5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="rounded-lg bg-primary/10 p-2 text-primary">
+                <Tags className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="font-bold">Cari berdasarkan Genre</h2>
+                <p className="text-sm text-muted-foreground">Temukan anime sesuai genre favorit Anda.</p>
+              </div>
+            </div>
+            <Link
+              href="/genre"
+              className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90"
+            >
+              Lihat Semua Genre
+            </Link>
+          </div>
+        </section>
 
         {/* Latest Ongoing Releases */}
         <section>

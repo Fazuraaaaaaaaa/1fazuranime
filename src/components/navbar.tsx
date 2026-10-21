@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Flame, History, ListVideo, PlayCircle } from "lucide-react";
+import { Flame, History, ListVideo, PlayCircle, Tags } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -12,6 +12,7 @@ const NAV = [
   { href: "/", label: "Home", icon: PlayCircle },
   { href: "/ongoing", label: "Ongoing", icon: Flame },
   { href: "/completed", label: "Completed", icon: ListVideo },
+  { href: "/genre", label: "Genre", icon: Tags },
   { href: "/my-list", label: "Riwayat", icon: History },
 ];
 
