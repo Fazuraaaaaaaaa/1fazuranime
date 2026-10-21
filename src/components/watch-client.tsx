@@ -45,7 +45,16 @@ export function WatchClient({ episode, episodes, slug, groups }: Props) {
     episode.nextEpisode?.episodeId ??
     (idx >= 0 && idx < episodes.length - 1 ? episodes[idx + 1].episodeId : null);
 
-  const downloads = episode.downloadUrl?.qualities ?? [];
+  const downloads = useMemo(
+    () =>
+      (episode.downloadUrl?.qualities ?? [])
+        .map((quality) => ({
+          ...quality,
+          urls: quality.urls.filter((url) => /^mega(?:\.nz)?$/i.test(url.title.trim())),
+        }))
+        .filter((quality) => quality.urls.length > 0),
+    [episode.downloadUrl?.qualities],
+  );
   const allServers = useMemo(() => groups.flatMap((g) => g.servers), [groups]);
 
   const probes = useQueries({
@@ -112,9 +121,10 @@ export function WatchClient({ episode, episodes, slug, groups }: Props) {
   const embedUrl = activeServer ? stateById.get(activeServer.serverId)?.url ?? "" : "";
 
   const probing = allServers.some((s) => stateById.get(s.serverId)?.state === "pending");
-  const badDefault = BLOCKED_HOST.test(episode.defaultStreamingUrl ?? "");
-  const fallbackUrl = !activeServer && !probing && !badDefault ? episode.defaultStreamingUrl ?? "" : "";
-  const shownUrl = embedUrl || fallbackUrl;
+
+
+  // The upstream default may point to another provider; only use the resolved Mega server.
+  const shownUrl = embedUrl;
   const busy = !shownUrl && probing;
   const stuck = !!activeServer && !embedUrl && !probing;
 

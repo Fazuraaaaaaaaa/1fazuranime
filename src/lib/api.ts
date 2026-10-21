@@ -305,28 +305,34 @@ function refreshExternal(key: string, target: string): Promise<ResolvedEmbed> {
 // ---------------------------------------------------------------------------
 
 const STREAM_BLOCKLIST = /(updesu|ondesu|desustream|odstream|odcdn|otakuwatch)/i;
+const MEGA_TITLE = /^mega(?:\.nz)?$/i;
+
+export function isMegaTitle(title: string): boolean {
+  return MEGA_TITLE.test(title.trim());
+}
 
 export function sanitizeWatchServers(episode: EpisodeData): WatchQualityGroup[] {
   const groups: WatchQualityGroup[] = [];
 
-  // 1) native mirror groups
+  // Only expose Mega as the single supported streaming server.
   for (const q of episode.server?.qualities ?? []) {
     const servers: WatchServerOption[] = q.serverList
-      .filter((s) => !STREAM_BLOCKLIST.test(s.title))
-      .map((s) => ({ kind: "server" as const, serverId: s.serverId, title: s.title, href: s.href }));
+      .filter((s) => isMegaTitle(s.title) && !STREAM_BLOCKLIST.test(s.title))
+      .slice(0, 1)
+      .map((s) => ({ kind: "server" as const, serverId: s.serverId, title: "Mega", href: s.href }));
     if (servers.length > 0) groups.push({ title: q.title, servers });
   }
 
-  // 2) synthesized 1080p group from embeddable download hosts
-  if (!groups.some((g) => g.title.includes("1080")) && episode.downloadUrl?.qualities) {
+  // Add a single Mega 1080p option when the upstream exposes one.
+  if (!groups.some((g) => /1080/i.test(g.title)) && episode.downloadUrl?.qualities) {
     const seen = new Set<string>();
     const servers: WatchServerOption[] = [];
     for (const d of episode.downloadUrl.qualities) {
       if (!/1080/i.test(d.title)) continue;
       for (const u of d.urls) {
-        if (seen.has(u.url)) continue;
+        if (!isMegaTitle(u.title) || seen.has(u.url)) continue;
         seen.add(u.url);
-        servers.push({ kind: "ext", serverId: `ext:${u.url}`, title: u.title, href: u.url });
+        servers.push({ kind: "ext", serverId: `ext:${u.url}`, title: "Mega", href: u.url });
       }
     }
     if (servers.length > 0) groups.push({ title: "1080p", servers });
