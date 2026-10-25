@@ -293,15 +293,10 @@ function refreshExternal(key: string, target: string): Promise<ResolvedEmbed> {
 // ---------------------------------------------------------------------------
 // Watch-page server hygiene
 //
-// Builds the quality groups shown by the player's server switcher:
-//   1. native Sanka mirrors, minus the desustream family — those hosts answer
-//      with X-Frame-Options: SAMEORIGIN and can NEVER play inside our iframe
-//      (odstream / odcdn / ondesu* / otakuwatch* / updesu all resolve there);
-//   2. a synthesized "1080p" group from MKV_1080p download links on hosts that
-//      expose an embed player (Filedon / VikingFile / Mega) — resolved lazily
-//      by the client via /api/proxy/resolve.
-// Anything the EMBED_PATTERNS table can't transform fails at probe time and is
-// dropped from the UI by the client (no dead buttons, no broken players).
+// Native mirrors are resolved and probed by the client. Exclude only the
+// DesuStream family because those hosts explicitly reject iframe embedding.
+// 1080p download links are included only when EMBED_PATTERNS can turn them
+// into iframe URLs. Mega is unique within the synthesized 1080p group.
 // ---------------------------------------------------------------------------
 
 const STREAM_BLOCKLIST = /(updesu|ondesu|desustream|odstream|odcdn|otakuwatch)/i;
@@ -314,25 +309,39 @@ export function isMegaTitle(title: string): boolean {
 export function sanitizeWatchServers(episode: EpisodeData): WatchQualityGroup[] {
   const groups: WatchQualityGroup[] = [];
 
-  // Only expose Mega as the single supported streaming server.
+  // Keep every non-blocked native mirror; the client probes its resolved URL.
   for (const q of episode.server?.qualities ?? []) {
     const servers: WatchServerOption[] = q.serverList
-      .filter((s) => isMegaTitle(s.title) && !STREAM_BLOCKLIST.test(s.title))
-      .slice(0, 1)
-      .map((s) => ({ kind: "server" as const, serverId: s.serverId, title: "Mega", href: s.href }));
+      .filter((s) => !STREAM_BLOCKLIST.test(`${s.title} ${s.serverId} ${s.href}`))
+      .filter((s, i, arr) => arr.findIndex((x) => x.serverId === s.serverId) === i)
+      .map((s) => ({
+        kind: "server" as const,
+        serverId: s.serverId,
+        title: s.title.trim(),
+        href: s.href,
+      }));
     if (servers.length > 0) groups.push({ title: q.title, servers });
   }
 
-  // Add a single Mega 1080p option when the upstream exposes one.
+  // Add supported 1080p download hosts when native 1080p is unavailable.
   if (!groups.some((g) => /1080/i.test(g.title)) && episode.downloadUrl?.qualities) {
-    const seen = new Set<string>();
+    const seenUrls = new Set<string>();
+    const seenMega = new Set<string>();
     const servers: WatchServerOption[] = [];
     for (const d of episode.downloadUrl.qualities) {
       if (!/1080/i.test(d.title)) continue;
       for (const u of d.urls) {
-        if (!isMegaTitle(u.title) || seen.has(u.url)) continue;
-        seen.add(u.url);
-        servers.push({ kind: "ext", serverId: `ext:${u.url}`, title: "Mega", href: u.url });
+        const isSupported = EMBED_PATTERNS.some((pattern) => pattern.test.test(u.url));
+        if (!isSupported || seenUrls.has(u.url)) continue;
+        if (isMegaTitle(u.title)) {
+          // Keep one Mega entry even when upstream returns duplicate Mega links.
+          const megaKey = u.url.match(/^https?:\/\/(?:www\.)?mega\.nz\/file\/([^#]+)/i)?.[1] ?? "mega";
+          if (seenMega.has(megaKey) || seenMega.has("mega")) continue;
+          seenMega.add(megaKey);
+          seenMega.add("mega");
+        }
+        seenUrls.add(u.url);
+        servers.push({ kind: "ext", serverId: `ext:${u.url}`, title: u.title.trim(), href: u.url });
       }
     }
     if (servers.length > 0) groups.push({ title: "1080p", servers });
