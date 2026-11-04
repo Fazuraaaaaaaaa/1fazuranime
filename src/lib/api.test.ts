@@ -79,13 +79,13 @@ describe("sanitizeWatchServers", () => {
     expect(groups).toHaveLength(2);
     const g1080 = groups.find((g) => g.title === "1080p");
     expect(g1080).toBeDefined();
-    // Mega comes first (always-included), then other supported hosts; second Mega is deduped
+    // Mega from MP4 comes first, then Filedon from MKV; second Mega from MKV is deduped
     expect(g1080?.servers).toEqual([
       {
         kind: "ext",
-        serverId: "ext:https://mega.nz/file/abc#key1",
+        serverId: "ext:https://mega.nz/file/def#key2",
         title: "Mega",
-        href: "https://mega.nz/file/abc#key1",
+        href: "https://mega.nz/file/def#key2",
       },
       {
         kind: "ext",
@@ -96,7 +96,7 @@ describe("sanitizeWatchServers", () => {
     ]);
   });
 
-  it("injects Mega 1080p into an existing native 1080p group", () => {
+  it("injects supported 1080p hosts (Mega, Filedon, etc.) into an existing native 1080p group", () => {
     const mockEpisode: EpisodeData = {
       title: "Test Episode",
       animeId: "test-slug",
@@ -121,6 +121,7 @@ describe("sanitizeWatchServers", () => {
             urls: [
               { title: "Mega", url: "https://mega.nz/file/xyz#keyABC" },
               { title: "Filedon", url: "https://filedon.co/view/456" },
+              { title: "VikingFile", url: "https://vikingfile.com/f/v789" },
             ],
           },
         ],
@@ -132,24 +133,34 @@ describe("sanitizeWatchServers", () => {
     };
 
     const groups = sanitizeWatchServers(mockEpisode);
-    // Should have 1080p (native + Mega injected) and 720p
     expect(groups).toHaveLength(2);
     const g1080 = groups.find((g) => g.title === "1080p")!;
-    expect(g1080.servers).toHaveLength(2);
-    // Native server first, then Mega appended
-    expect(g1080.servers[0]).toEqual({
-      kind: "server",
-      serverId: "native-1080",
-      title: "NativeHD",
-      href: "/server/native-1080",
-    });
-    expect(g1080.servers[1]).toEqual({
-      kind: "ext",
-      serverId: "ext:https://mega.nz/file/xyz#keyABC",
-      title: "Mega",
-      href: "https://mega.nz/file/xyz#keyABC",
-    });
-    // Filedon is NOT included because native 1080p already exists (only Mega is always injected)
+    expect(g1080.servers).toEqual([
+      {
+        kind: "server",
+        serverId: "native-1080",
+        title: "NativeHD",
+        href: "/server/native-1080",
+      },
+      {
+        kind: "ext",
+        serverId: "ext:https://mega.nz/file/xyz#keyABC",
+        title: "Mega",
+        href: "https://mega.nz/file/xyz#keyABC",
+      },
+      {
+        kind: "ext",
+        serverId: "ext:https://filedon.co/view/456",
+        title: "Filedon",
+        href: "https://filedon.co/view/456",
+      },
+      {
+        kind: "ext",
+        serverId: "ext:https://vikingfile.com/f/v789",
+        title: "VikingFile",
+        href: "https://vikingfile.com/f/v789",
+      },
+    ]);
   });
 
   it("recognizes supported download hosts even when URL is a redirector link like desustream", () => {
@@ -173,7 +184,10 @@ describe("sanitizeWatchServers", () => {
             urls: [
               { title: "Filedon", url: "https://link.desustream.com/?id=filedon-id" },
               { title: "Mega", url: "https://link.desustream.com/?id=mega-id" },
+              { title: "Acefile", url: "https://link.desustream.com/?id=acefile-id" },
+              { title: "VikingFile", url: "https://link.desustream.com/?id=viking-id" },
               { title: "GoFile", url: "https://link.desustream.com/?id=gofile-id" },
+              { title: "Pdrain", url: "https://link.desustream.com/?id=pdrain-id" },
             ],
           },
         ],
@@ -187,6 +201,7 @@ describe("sanitizeWatchServers", () => {
     const groups = sanitizeWatchServers(mockEpisode);
     const g1080 = groups.find((g) => g.title === "1080p");
     expect(g1080).toBeDefined();
+    // Mega, Filedon, VikingFile, Acefile are included and playable; GoFile and Pdrain are excluded from streaming
     expect(g1080?.servers).toEqual([
       {
         kind: "ext",
@@ -199,6 +214,18 @@ describe("sanitizeWatchServers", () => {
         serverId: "ext:https://link.desustream.com/?id=filedon-id",
         title: "Filedon",
         href: "https://link.desustream.com/?id=filedon-id",
+      },
+      {
+        kind: "ext",
+        serverId: "ext:https://link.desustream.com/?id=viking-id",
+        title: "VikingFile",
+        href: "https://link.desustream.com/?id=viking-id",
+      },
+      {
+        kind: "ext",
+        serverId: "ext:https://link.desustream.com/?id=acefile-id",
+        title: "Acefile",
+        href: "https://link.desustream.com/?id=acefile-id",
       },
     ]);
   });

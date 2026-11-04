@@ -46,13 +46,7 @@ export function WatchClient({ episode, episodes, slug, groups }: Props) {
     (idx >= 0 && idx < episodes.length - 1 ? episodes[idx + 1].episodeId : null);
 
   const downloads = useMemo(
-    () =>
-      (episode.downloadUrl?.qualities ?? [])
-        .map((quality) => ({
-          ...quality,
-          urls: quality.urls.filter((url) => /^mega(?:\.nz)?$/i.test(url.title.trim())),
-        }))
-        .filter((quality) => quality.urls.length > 0),
+    () => episode.downloadUrl?.qualities ?? [],
     [episode.downloadUrl?.qualities],
   );
   const allServers = useMemo(() => groups.flatMap((g) => g.servers), [groups]);

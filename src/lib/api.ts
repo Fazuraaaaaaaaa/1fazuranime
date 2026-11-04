@@ -165,10 +165,18 @@ const EMBED_PATTERNS = [
     },
   },
   {
-    test: /^https?:\/\/(?:www\.)?pixeldrain\.com\/u\/([\w-]+)/i,
+    // acefile download link -> embed player
+    test: /^https?:\/\/(?:www\.)?acefile\.co\/f\/(\d+)/i,
     toEmbed: (u: string) => {
-      const m = u.match(/pixeldrain\.com\/u\/([\w-]+)/i);
-      return m ? `https://pixeldrain.com/e/${m[1]}` : u;
+      const m = u.match(/\/f\/(\d+)/i);
+      return m ? `https://acefile.co/player/${m[1]}` : u;
+    },
+  },
+  {
+    test: /^https?:\/\/(?:www\.)?(?:odvidhide|vidhide|vidhidepro)\.com\/(?:v|f|d|embed)\/([\w-]+)/i,
+    toEmbed: (u: string) => {
+      const m = u.match(/\/(?:v|f|d|embed)\/([\w-]+)/i);
+      return m ? `https://odvidhide.com/embed/${m[1]}` : u;
     },
   },
   {
@@ -304,11 +312,31 @@ function refreshExternal(key: string, target: string): Promise<ResolvedEmbed> {
 
 const STREAM_BLOCKLIST = /(updesu|ondesu|desustream|odstream|odcdn|otakuwatch)/i;
 const MEGA_TITLE = /^mega(?:\.nz)?$/i;
-export const SUPPORTED_HOST_TITLE = /^(?:mega(?:\.nz)?|filedon|viking(?:file)?|p(?:ixel)?drain|g(?:oogle)?\s*drive|mp4upload)$/i;
+export const SUPPORTED_HOST_TITLE = /^(?:mega(?:\.nz)?|filedon|viking(?:file)?|acefile|vidhide|g(?:oogle)?\s*drive)$/i;
 
 export function isMegaTitle(title: string): boolean {
   return MEGA_TITLE.test(title.trim());
 }
+
+export function normalizeHostTitle(title: string): string {
+  const t = title.trim();
+  if (/^mega/i.test(t)) return "Mega";
+  if (/^filedon/i.test(t)) return "Filedon";
+  if (/^viking/i.test(t)) return "VikingFile";
+  if (/^acefile/i.test(t)) return "Acefile";
+  if (/^vidhide/i.test(t)) return "Vidhide";
+  if (/^g(?:oogle)?\s*drive/i.test(t)) return "Google Drive";
+  return t;
+}
+
+const HOST_PRIORITY: Record<string, number> = {
+  Mega: 1,
+  Filedon: 2,
+  VikingFile: 3,
+  Acefile: 4,
+  Vidhide: 5,
+  "Google Drive": 6,
+};
 
 export function isSupportedHost(title: string, url: string): boolean {
   if (EMBED_PATTERNS.some((pattern) => pattern.test.test(url))) return true;
@@ -332,49 +360,55 @@ export function sanitizeWatchServers(episode: EpisodeData): WatchQualityGroup[] 
     if (servers.length > 0) groups.push({ title: q.title, servers });
   }
 
-  // Collect Mega 1080p servers from download links — always included regardless
-  // of whether a native 1080p group already exists. Other supported hosts are
-  // only added when no native 1080p group is present.
+  // Collect 1080p servers from download links that can be played in iframe (Mega, Filedon, VikingFile, Acefile, etc.).
   if (episode.downloadUrl?.qualities) {
     const seenUrls = new Set<string>();
-    const seenMega = new Set<string>();
-    const megaServers: WatchServerOption[] = [];
-    const otherServers: WatchServerOption[] = [];
+    const seenHosts = new Set<string>();
+    const ext1080Servers: WatchServerOption[] = [];
 
-    for (const d of episode.downloadUrl.qualities) {
+    // Prioritize MP4 over MKV if both exist for better browser player compatibility
+    const sortedQualities = [...episode.downloadUrl.qualities].sort((a, b) => {
+      const aMp4 = /mp4/i.test(a.title) ? 1 : 0;
+      const bMp4 = /mp4/i.test(b.title) ? 1 : 0;
+      return bMp4 - aMp4;
+    });
+
+    for (const d of sortedQualities) {
       if (!/1080/i.test(d.title)) continue;
       for (const u of d.urls) {
         const isSupported = isSupportedHost(u.title, u.url);
         if (!isSupported || seenUrls.has(u.url)) continue;
-        if (isMegaTitle(u.title)) {
-          // Keep one Mega entry even when upstream returns duplicate Mega links.
-          const megaKey = u.url.match(/^https?:\/\/(?:www\.)?mega\.nz\/file\/([^#]+)/i)?.[1] ?? "mega";
-          if (seenMega.has(megaKey) || seenMega.has("mega")) continue;
-          seenMega.add(megaKey);
-          seenMega.add("mega");
-          seenUrls.add(u.url);
-          megaServers.push({ kind: "ext", serverId: `ext:${u.url}`, title: u.title.trim(), href: u.url });
-        } else {
-          seenUrls.add(u.url);
-          otherServers.push({ kind: "ext", serverId: `ext:${u.url}`, title: u.title.trim(), href: u.url });
-        }
+
+        const hostName = normalizeHostTitle(u.title);
+        // Deduplicate so each host (Mega, Filedon, VikingFile, Acefile) appears once in 1080p
+        if (seenHosts.has(hostName.toLowerCase())) continue;
+
+        seenHosts.add(hostName.toLowerCase());
+        seenUrls.add(u.url);
+
+        ext1080Servers.push({
+          kind: "ext",
+          serverId: `ext:${u.url}`,
+          title: hostName,
+          href: u.url,
+        });
       }
     }
 
-    const hasNative1080 = groups.some((g) => /1080/i.test(g.title));
+    // Sort: Mega first, then Filedon, VikingFile, Acefile, etc.
+    ext1080Servers.sort((a, b) => (HOST_PRIORITY[a.title] ?? 99) - (HOST_PRIORITY[b.title] ?? 99));
 
-    if (hasNative1080) {
-      // Native 1080p exists — inject Mega into that group so it's always visible.
-      if (megaServers.length > 0) {
-        const idx = groups.findIndex((g) => /1080/i.test(g.title));
-        const existingIds = new Set(groups[idx].servers.map((s) => s.serverId));
-        const newMega = megaServers.filter((s) => !existingIds.has(s.serverId));
-        if (newMega.length > 0) groups[idx] = { ...groups[idx], servers: [...groups[idx].servers, ...newMega] };
+    const idx = groups.findIndex((g) => /1080/i.test(g.title));
+    if (idx !== -1) {
+      // Native 1080p exists — append non-duplicate ext servers so all working 1080p providers are available
+      const existingTitles = new Set(groups[idx].servers.map((s) => s.title.toLowerCase()));
+      const newServers = ext1080Servers.filter((s) => !existingTitles.has(s.title.toLowerCase()));
+      if (newServers.length > 0) {
+        groups[idx] = { ...groups[idx], servers: [...groups[idx].servers, ...newServers] };
       }
-    } else {
-      // No native 1080p — add all supported hosts (Mega + others) in one group.
-      const allExt = [...megaServers, ...otherServers];
-      if (allExt.length > 0) groups.push({ title: "1080p", servers: allExt });
+    } else if (ext1080Servers.length > 0) {
+      // No native 1080p — add synthesized 1080p group
+      groups.push({ title: "1080p", servers: ext1080Servers });
     }
   }
 
