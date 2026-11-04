@@ -265,20 +265,23 @@ function refreshExternal(key: string, target: string): Promise<ResolvedEmbed> {
     }
     const out: ResolvedEmbed = { url: pattern.toEmbed(finalUrl), host: hostOf(finalUrl) };
     
-    // Validate if the embed is actually alive (Pixeldrain/Mega/etc often have dead links)
-    try {
-      const ac = new AbortController();
-      const timer = setTimeout(() => ac.abort(), 4000);
-      const probe = await fetch(out.url, { method: "HEAD", signal: ac.signal }).finally(() => clearTimeout(timer));
-      if (probe.status === 404) {
-        const neg: ResolvedEmbed = { url: "", host: hostOf(finalUrl) };
-        cache.set(key, neg, 600, 3600);
-        throw new Error(`${neg.host} file not found (404)`);
+    // Validate if the embed is actually alive (Pixeldrain/Filedon/etc often have dead links).
+    // Mega is already validated during redirect resolution (fetchFinalUrl) and blocks HEAD requests.
+    if (!/mega\.nz/i.test(finalUrl)) {
+      try {
+        const ac = new AbortController();
+        const timer = setTimeout(() => ac.abort(), 4000);
+        const probe = await fetch(out.url, { method: "HEAD", signal: ac.signal }).finally(() => clearTimeout(timer));
+        if (probe.status === 404) {
+          const neg: ResolvedEmbed = { url: "", host: hostOf(finalUrl) };
+          cache.set(key, neg, 600, 3600);
+          throw new Error(`${neg.host} file not found (404)`);
+        }
+      } catch (err: any) {
+        if (err.message.includes("404")) throw err;
+        // If HEAD fails due to CORS/network/timeout, we still optimistically return the URL 
+        // rather than breaking working servers that block HEAD requests.
       }
-    } catch (err: any) {
-      if (err.message.includes("404")) throw err;
-      // If HEAD fails due to CORS/network/timeout, we still optimistically return the URL 
-      // rather than breaking working servers that block HEAD requests.
     }
 
     cache.set(key, out, TTL.SERVER, TTL.SERVER * 5);
@@ -295,15 +298,21 @@ function refreshExternal(key: string, target: string): Promise<ResolvedEmbed> {
 //
 // Native mirrors are resolved and probed by the client. Exclude only the
 // DesuStream family because those hosts explicitly reject iframe embedding.
-// 1080p download links are included only when EMBED_PATTERNS can turn them
-// into iframe URLs. Mega is unique within the synthesized 1080p group.
+// 1080p download links are included when EMBED_PATTERNS or a supported host title
+// can turn them into iframe URLs. Mega is unique within the synthesized 1080p group.
 // ---------------------------------------------------------------------------
 
 const STREAM_BLOCKLIST = /(updesu|ondesu|desustream|odstream|odcdn|otakuwatch)/i;
 const MEGA_TITLE = /^mega(?:\.nz)?$/i;
+export const SUPPORTED_HOST_TITLE = /^(?:mega(?:\.nz)?|filedon|viking(?:file)?|p(?:ixel)?drain|g(?:oogle)?\s*drive|mp4upload)$/i;
 
 export function isMegaTitle(title: string): boolean {
   return MEGA_TITLE.test(title.trim());
+}
+
+export function isSupportedHost(title: string, url: string): boolean {
+  if (EMBED_PATTERNS.some((pattern) => pattern.test.test(url))) return true;
+  return SUPPORTED_HOST_TITLE.test(title.trim());
 }
 
 export function sanitizeWatchServers(episode: EpisodeData): WatchQualityGroup[] {
@@ -335,7 +344,7 @@ export function sanitizeWatchServers(episode: EpisodeData): WatchQualityGroup[] 
     for (const d of episode.downloadUrl.qualities) {
       if (!/1080/i.test(d.title)) continue;
       for (const u of d.urls) {
-        const isSupported = EMBED_PATTERNS.some((pattern) => pattern.test.test(u.url));
+        const isSupported = isSupportedHost(u.title, u.url);
         if (!isSupported || seenUrls.has(u.url)) continue;
         if (isMegaTitle(u.title)) {
           // Keep one Mega entry even when upstream returns duplicate Mega links.

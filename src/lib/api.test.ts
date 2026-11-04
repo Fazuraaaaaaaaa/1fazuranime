@@ -151,4 +151,55 @@ describe("sanitizeWatchServers", () => {
     });
     // Filedon is NOT included because native 1080p already exists (only Mega is always injected)
   });
+
+  it("recognizes supported download hosts even when URL is a redirector link like desustream", () => {
+    const mockEpisode: EpisodeData = {
+      title: "Test Episode",
+      animeId: "test-slug",
+      defaultStreamingUrl: "",
+      server: {
+        qualities: [
+          {
+            title: "720p",
+            serverList: [{ serverId: "srv-720", title: "Mega", href: "https://mega.nz" }],
+          },
+        ],
+      },
+      downloadUrl: {
+        qualities: [
+          {
+            title: "Mp4_1080p",
+            size: "600 MB",
+            urls: [
+              { title: "Filedon", url: "https://link.desustream.com/?id=filedon-id" },
+              { title: "Mega", url: "https://link.desustream.com/?id=mega-id" },
+              { title: "GoFile", url: "https://link.desustream.com/?id=gofile-id" },
+            ],
+          },
+        ],
+      },
+      hasPrevEpisode: false,
+      hasNextEpisode: false,
+      prevEpisode: null,
+      nextEpisode: null,
+    };
+
+    const groups = sanitizeWatchServers(mockEpisode);
+    const g1080 = groups.find((g) => g.title === "1080p");
+    expect(g1080).toBeDefined();
+    expect(g1080?.servers).toEqual([
+      {
+        kind: "ext",
+        serverId: "ext:https://link.desustream.com/?id=mega-id",
+        title: "Mega",
+        href: "https://link.desustream.com/?id=mega-id",
+      },
+      {
+        kind: "ext",
+        serverId: "ext:https://link.desustream.com/?id=filedon-id",
+        title: "Filedon",
+        href: "https://link.desustream.com/?id=filedon-id",
+      },
+    ]);
+  });
 });

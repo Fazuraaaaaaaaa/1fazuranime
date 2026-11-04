@@ -57,13 +57,14 @@ function MetaRow({ icon: Icon, label, value }: {
 }
 
 export default async function AnimeDetailPage({ params }: { params: { slug: string } }) {
-  // Upstream 404 (unknown slug) arrives as a thrown UpstreamError — map it to notFound().
-  const anime = await getAnimeDetail(params.slug)
-    .then((r) => r.data)
-    .catch((err) => {
-      if (err?.status === 404) return null;
-      throw err;
-    });
+  // Gracefully handle upstream failures to avoid crashing the entire page
+  const animeResult = await getAnimeDetail(params.slug).catch((err) => {
+    if (err?.status === 404) return null;
+    console.error(`[AnimeDetail] Failed to fetch ${params.slug}:`, err?.message || err);
+    return null;
+  });
+
+  const anime = animeResult?.data;
   if (!anime?.title) notFound();
 
   const firstEp = anime.episodeList?.at(-1) ?? anime.episodeList?.[0];

@@ -74,12 +74,17 @@ async function rawFetch<T>(path: string): Promise<ApiEnvelope<T>> {
         throw new UpstreamError("Upstream rate limit (429)", 429, waitSec);
       }
 
-      const body = (await res.json()) as ApiEnvelope<T>;
-      const payloadStatus = typeof body.statusCode === "number" ? body.statusCode : undefined;
-      if (!res.ok || body.ok === false || (payloadStatus !== undefined && payloadStatus >= 400)) {
+      let body: ApiEnvelope<T>;
+      try {
+        body = (await res.json()) as ApiEnvelope<T>;
+      } catch {
+        throw new UpstreamError(`Upstream HTTP ${res.status}`, res.status);
+      }
+      const payloadStatus = typeof body?.statusCode === "number" ? body.statusCode : undefined;
+      if (!res.ok || body?.ok === false || (payloadStatus !== undefined && payloadStatus >= 400)) {
         // Some upstream errors arrive as HTTP 500 with a JSON statusCode (for
         // example 404). Preserve the actual payload status for callers.
-        throw new UpstreamError(body.message || `Upstream HTTP ${res.status}`, payloadStatus ?? res.status);
+        throw new UpstreamError(body?.message || `Upstream HTTP ${res.status}`, payloadStatus ?? res.status);
       }
       return body;
     } catch (err) {
