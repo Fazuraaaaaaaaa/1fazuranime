@@ -79,20 +79,76 @@ describe("sanitizeWatchServers", () => {
     expect(groups).toHaveLength(2);
     const g1080 = groups.find((g) => g.title === "1080p");
     expect(g1080).toBeDefined();
-    // Filedon accompanied Mega, and the second Mega from MP4 1080p was deduped (no 2 Megas)
+    // Mega comes first (always-included), then other supported hosts; second Mega is deduped
     expect(g1080?.servers).toEqual([
-      {
-        kind: "ext",
-        serverId: "ext:https://filedon.co/view/123",
-        title: "Filedon",
-        href: "https://filedon.co/view/123",
-      },
       {
         kind: "ext",
         serverId: "ext:https://mega.nz/file/abc#key1",
         title: "Mega",
         href: "https://mega.nz/file/abc#key1",
       },
+      {
+        kind: "ext",
+        serverId: "ext:https://filedon.co/view/123",
+        title: "Filedon",
+        href: "https://filedon.co/view/123",
+      },
     ]);
+  });
+
+  it("injects Mega 1080p into an existing native 1080p group", () => {
+    const mockEpisode: EpisodeData = {
+      title: "Test Episode",
+      animeId: "test-slug",
+      defaultStreamingUrl: "",
+      server: {
+        qualities: [
+          {
+            title: "1080p",
+            serverList: [{ serverId: "native-1080", title: "NativeHD", href: "/server/native-1080" }],
+          },
+          {
+            title: "720p",
+            serverList: [{ serverId: "srv-720", title: "Mirror720", href: "/server/srv-720" }],
+          },
+        ],
+      },
+      downloadUrl: {
+        qualities: [
+          {
+            title: "MKV 1080p",
+            size: "1.2 GB",
+            urls: [
+              { title: "Mega", url: "https://mega.nz/file/xyz#keyABC" },
+              { title: "Filedon", url: "https://filedon.co/view/456" },
+            ],
+          },
+        ],
+      },
+      hasPrevEpisode: false,
+      hasNextEpisode: false,
+      prevEpisode: null,
+      nextEpisode: null,
+    };
+
+    const groups = sanitizeWatchServers(mockEpisode);
+    // Should have 1080p (native + Mega injected) and 720p
+    expect(groups).toHaveLength(2);
+    const g1080 = groups.find((g) => g.title === "1080p")!;
+    expect(g1080.servers).toHaveLength(2);
+    // Native server first, then Mega appended
+    expect(g1080.servers[0]).toEqual({
+      kind: "server",
+      serverId: "native-1080",
+      title: "NativeHD",
+      href: "/server/native-1080",
+    });
+    expect(g1080.servers[1]).toEqual({
+      kind: "ext",
+      serverId: "ext:https://mega.nz/file/xyz#keyABC",
+      title: "Mega",
+      href: "https://mega.nz/file/xyz#keyABC",
+    });
+    // Filedon is NOT included because native 1080p already exists (only Mega is always injected)
   });
 });

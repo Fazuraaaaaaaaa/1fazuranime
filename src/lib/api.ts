@@ -323,11 +323,15 @@ export function sanitizeWatchServers(episode: EpisodeData): WatchQualityGroup[] 
     if (servers.length > 0) groups.push({ title: q.title, servers });
   }
 
-  // Add supported 1080p download hosts when native 1080p is unavailable.
-  if (!groups.some((g) => /1080/i.test(g.title)) && episode.downloadUrl?.qualities) {
+  // Collect Mega 1080p servers from download links — always included regardless
+  // of whether a native 1080p group already exists. Other supported hosts are
+  // only added when no native 1080p group is present.
+  if (episode.downloadUrl?.qualities) {
     const seenUrls = new Set<string>();
     const seenMega = new Set<string>();
-    const servers: WatchServerOption[] = [];
+    const megaServers: WatchServerOption[] = [];
+    const otherServers: WatchServerOption[] = [];
+
     for (const d of episode.downloadUrl.qualities) {
       if (!/1080/i.test(d.title)) continue;
       for (const u of d.urls) {
@@ -339,12 +343,30 @@ export function sanitizeWatchServers(episode: EpisodeData): WatchQualityGroup[] 
           if (seenMega.has(megaKey) || seenMega.has("mega")) continue;
           seenMega.add(megaKey);
           seenMega.add("mega");
+          seenUrls.add(u.url);
+          megaServers.push({ kind: "ext", serverId: `ext:${u.url}`, title: u.title.trim(), href: u.url });
+        } else {
+          seenUrls.add(u.url);
+          otherServers.push({ kind: "ext", serverId: `ext:${u.url}`, title: u.title.trim(), href: u.url });
         }
-        seenUrls.add(u.url);
-        servers.push({ kind: "ext", serverId: `ext:${u.url}`, title: u.title.trim(), href: u.url });
       }
     }
-    if (servers.length > 0) groups.push({ title: "1080p", servers });
+
+    const hasNative1080 = groups.some((g) => /1080/i.test(g.title));
+
+    if (hasNative1080) {
+      // Native 1080p exists — inject Mega into that group so it's always visible.
+      if (megaServers.length > 0) {
+        const idx = groups.findIndex((g) => /1080/i.test(g.title));
+        const existingIds = new Set(groups[idx].servers.map((s) => s.serverId));
+        const newMega = megaServers.filter((s) => !existingIds.has(s.serverId));
+        if (newMega.length > 0) groups[idx] = { ...groups[idx], servers: [...groups[idx].servers, ...newMega] };
+      }
+    } else {
+      // No native 1080p — add all supported hosts (Mega + others) in one group.
+      const allExt = [...megaServers, ...otherServers];
+      if (allExt.length > 0) groups.push({ title: "1080p", servers: allExt });
+    }
   }
 
   return groups;
