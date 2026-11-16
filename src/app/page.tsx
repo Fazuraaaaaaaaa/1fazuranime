@@ -1,57 +1,33 @@
 import Link from "next/link";
-import { Flame, Sparkles, Tags, MessageSquare, Zap } from "lucide-react";
-import { getHome, getCompleted, getSamehadakuHome, getAnimekompiHome } from "@/lib/api";
+import { Flame, Sparkles, Tags } from "lucide-react";
+import { getHome, getCompleted } from "@/lib/api";
 import { HeroCarousel } from "@/components/hero-carousel";
 import { AnimeGrid } from "@/components/anime-grid";
 import { SectionHeader } from "@/components/section-header";
 import { Badge } from "@/components/ui/badge";
 import { ContinueWatchingSection } from "@/components/continue-watching-section";
-import { ProviderSwitcher, type ProviderType } from "@/components/provider-switcher";
-import type { AnimeCard } from "@/lib/types";
 
 // Data freshness is governed by the SWR proxy cache (15 min for lists).
 // Pages render per-request so the node-cache layer can serve stale data
 // gracefully when upstream is rate-limited.
 export const dynamic = "force-dynamic";
 
-interface Props {
-  searchParams?: { provider?: string };
-}
+export default async function HomePage() {
+  // Keep the shell usable when one upstream section is temporarily unavailable.
+  const [home, completed] = await Promise.all([
+    getHome().catch(() => null),
+    getCompleted(1).catch(() => null),
+  ]);
 
-export default async function HomePage({ searchParams }: Props) {
-  const provider = (searchParams?.provider as ProviderType) || "otakudesu";
-
-  let ongoing: AnimeCard[] = [];
-  let done: AnimeCard[] = [];
-  let featured: AnimeCard[] = [];
-
-  if (provider === "samehadaku") {
-    const sameList = await getSamehadakuHome();
-    ongoing = sameList;
-    featured = sameList.slice(0, 6);
-  } else if (provider === "animekompi") {
-    const kompiList = await getAnimekompiHome();
-    ongoing = kompiList;
-    featured = kompiList.slice(0, 6);
-  } else {
-    // Default Otakudesu
-    const [home, completed] = await Promise.all([
-      getHome().catch(() => null),
-      getCompleted(1).catch(() => null),
-    ]);
-    ongoing = home?.data.ongoing?.animeList ?? [];
-    done = completed?.data.animeList ?? [];
-    featured = ongoing.slice(0, 6);
-  }
+  const ongoing = home?.data.ongoing?.animeList ?? [];
+  const done = completed?.data.animeList ?? [];
+  const featured = ongoing.slice(0, 6);
 
   return (
     <div className="pb-10">
       <HeroCarousel featured={featured} />
 
       <div className="container mt-8 space-y-10">
-        {/* Multi-Provider Switcher Bar */}
-        <ProviderSwitcher current={provider} />
-
         {/* Continue Watching / History */}
         <ContinueWatchingSection />
 
@@ -76,57 +52,25 @@ export default async function HomePage({ searchParams }: Props) {
           </div>
         </section>
 
-        {/* Releases Section */}
+        {/* Latest Ongoing Releases */}
         <section>
-          <SectionHeader
-            title={
-              provider === "samehadaku"
-                ? "Rilis Terbaru (Samehadaku)"
-                : provider === "animekompi"
-                ? "Rilis Terbaru & Ongoing (Animekompi)"
-                : "Latest Update"
-            }
-            href={provider === "otakudesu" ? "/ongoing" : `/?provider=${provider}`}
-          >
-            <Badge
-              variant={provider === "animekompi" ? "default" : "success"}
-              className={`gap-1 ${
-                provider === "animekompi"
-                  ? "bg-purple-600 text-white"
-                  : provider === "samehadaku"
-                  ? "bg-amber-600 text-white"
-                  : ""
-              }`}
-            >
-              {provider === "animekompi" ? (
-                <>
-                  <MessageSquare className="h-3 w-3" /> Animekompi
-                </>
-              ) : provider === "samehadaku" ? (
-                <>
-                  <Sparkles className="h-3 w-3" /> Samehadaku
-                </>
-              ) : (
-                <>
-                  <Flame className="h-3 w-3" /> Ongoing
-                </>
-              )}
+          <SectionHeader title="Latest Update" href="/ongoing">
+            <Badge variant="success" className="gap-1">
+              <Flame className="h-3 w-3" /> Ongoing
             </Badge>
           </SectionHeader>
           <AnimeGrid animeList={ongoing} />
         </section>
 
-        {/* Completed ranking (shown for default Otakudesu) */}
-        {done.length > 0 && (
-          <section>
-            <SectionHeader title="Completed Anime" href="/completed">
-              <Badge variant="secondary" className="gap-1">
-                <Sparkles className="h-3 w-3" /> Tamat
-              </Badge>
-            </SectionHeader>
-            <AnimeGrid animeList={done} />
-          </section>
-        )}
+        {/* Popular / Completed ranking */}
+        <section>
+          <SectionHeader title="Completed Anime" href="/completed">
+            <Badge variant="secondary" className="gap-1">
+              <Sparkles className="h-3 w-3" /> Tamat
+            </Badge>
+          </SectionHeader>
+          <AnimeGrid animeList={done} />
+        </section>
 
         {/* Watchlist teaser */}
         <section className="rounded-xl border bg-card/50 p-6 text-center">

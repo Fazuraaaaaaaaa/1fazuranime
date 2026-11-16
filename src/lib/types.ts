@@ -135,34 +135,6 @@ export interface WatchServerOption {
   title: string;
   /** ext: original download-host link to resolve; server: mirror id or endpoint */
   href: string;
-  provider?: "otakudesu" | "samehadaku" | "animekompi";
-}
-
-export interface DanmakuComment {
-  id?: string | number;
-  text: string;
-  time?: number; // timestamp in seconds
-  color?: string; // hex or CSS color
-  createdAt?: number;
-}
-
-export interface AnimekompiBackupData {
-  defaultIframe?: string;
-  episodeSlug?: string;
-  mirrors?: Array<{
-    name: string;
-    server: string;
-    url: string;
-    type?: string;
-    quality?: string;
-  }>;
-  sources?: Array<{
-    id: number;
-    label: string;
-    url: string;
-    kind: string;
-    quality: string;
-  }>;
 }
 
 export interface WatchQualityGroup {

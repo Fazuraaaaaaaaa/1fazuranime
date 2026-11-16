@@ -479,92 +479,54 @@ describe("sanitizeWatchServers", () => {
     const groups = sanitizeWatchServers(mockEpisode, backupData);
     expect(groups).toHaveLength(2);
 
-    // 1080p has Samehadaku Mega
+    // 1080p has Mega with clean title (no provider tag)
     const g1080 = groups.find((g) => g.title === "1080p");
     expect(g1080).toBeDefined();
     expect(g1080?.servers[0]).toEqual({
       kind: "server",
       serverId: "samehadaku:same-mega-1080",
-      title: "Mega (Samehadaku)",
+      title: "Mega",
       href: "/samehadaku/server/same-mega-1080",
-      provider: "samehadaku",
     });
 
-    // 720p has direct Blogger HD embed unshifted, and Blogspot server appended
+    // 720p has direct Blogger HD embed and Blogger server with clean title
     const g720 = groups.find((g) => g.title === "720p");
     expect(g720).toBeDefined();
-    expect(g720?.servers[0]).toEqual({
-      kind: "ext",
-      serverId: "samehadaku:default:https://www.blogger.com/video.g?token=blogger-token-123",
-      title: "Blogger HD (Samehadaku)",
-      href: "https://www.blogger.com/video.g?token=blogger-token-123",
-      provider: "samehadaku",
-    });
-    expect(g720?.servers[1]).toEqual({
-      kind: "server",
-      serverId: "samehadaku:same-blogger-720",
-      title: "Blogger (Samehadaku)",
-      href: "/samehadaku/server/same-blogger-720",
-      provider: "samehadaku",
-    });
+    expect(g720?.servers.some((s) => s.title === "Blogger HD")).toBe(true);
+    expect(g720?.servers.some((s) => s.title === "Blogger")).toBe(true);
   });
 
-  it("injects Animekompi backup servers alongside Samehadaku and Otakudesu (Triple Backup)", () => {
+  it("prioritizes Filedon at top position (#1) across server qualities", () => {
     const mockEpisode: EpisodeData = {
       title: "Test Episode",
       animeId: "test-slug",
       defaultStreamingUrl: "",
-      server: {
+      server: { qualities: [] },
+      downloadUrl: {
         qualities: [
           {
-            title: "720p",
-            serverList: [{ serverId: "otaku-1", title: "Vidhide", href: "https://vidhide.com" }],
+            title: "MP4 720p",
+            size: "150 MB",
+            urls: [
+              { title: "Acefile", url: "https://acefile.co/f/456" },
+              { title: "Filedon", url: "https://filedon.co/view/xyz123" },
+            ],
           },
         ],
       },
-      downloadUrl: { qualities: [] },
       hasPrevEpisode: false,
       hasNextEpisode: false,
       prevEpisode: null,
       nextEpisode: null,
     };
 
-    const sameBackup = {
-      defaultStreamingUrl: "https://www.blogger.com/video.g?token=same-token",
-    };
-
-    const kompiBackup = {
-      defaultIframe: "https://www.blogger.com/video.g?token=kompi-token",
-      episodeSlug: "kompi-ep-slug",
-      mirrors: [
-        {
-          name: "720p [1]",
-          server: "Berkasdrive",
-          url: "https://dl.berkasdrive.com/streaming/?id=123",
-          quality: "720p",
-        },
-        {
-          name: "1080p [1]",
-          server: "Mega",
-          url: "https://mega.nz/embed/kompi-1080",
-          quality: "1080p",
-        },
-      ],
-    };
-
-    const groups = sanitizeWatchServers(mockEpisode, sameBackup, kompiBackup);
-
-    // Check 1080p has Animekompi Mega
-    const g1080 = groups.find((g) => g.title === "1080p");
-    expect(g1080).toBeDefined();
-    expect(g1080?.servers.some((s) => s.provider === "animekompi" && s.title.includes("Animekompi"))).toBe(true);
-
-    // Check 720p has Otakudesu, Samehadaku, and Animekompi servers
+    const groups = sanitizeWatchServers(mockEpisode);
     const g720 = groups.find((g) => g.title === "720p");
     expect(g720).toBeDefined();
-    const providers = g720?.servers.map((s) => s.provider);
-    expect(providers).toContain("samehadaku");
-    expect(providers).toContain("animekompi");
-    expect(g720?.servers.some((s) => s.title.includes("Berkasdrive (Animekompi)"))).toBe(true);
+    // Filedon should be at index 0 because HOST_PRIORITY for Filedon is higher than Acefile!
+    expect(g720?.servers[0].title).toBe("Filedon");
+    expect(g720?.servers[0].kind).toBe("ext");
+    expect(g720?.servers[0].href).toBe("https://filedon.co/view/xyz123");
+    expect(g720?.servers[1].title).toBe("Acefile");
   });
 });

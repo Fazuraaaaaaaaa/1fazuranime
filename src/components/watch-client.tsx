@@ -23,7 +23,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetTrigger, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { DanmakuOverlay } from "@/components/danmaku-overlay";
 import type { EpisodeData, EpisodeRef, ServerEmbed, WatchQualityGroup, WatchServerOption } from "@/lib/types";
 
 interface Props {
@@ -31,14 +30,13 @@ interface Props {
   episodes: EpisodeRef[];
   slug: string;
   groups: WatchQualityGroup[];
-  animekompiSlug?: string;
 }
 
 type ServerState = "pending" | "ok" | "dead" | "unresolved";
 
 const BLOCKED_HOST = /(?:updesu|ondesu|desustream|odstream|odcdn|otakuwatch)/i;
 
-export function WatchClient({ episode, episodes, slug, groups, animekompiSlug }: Props) {
+export function WatchClient({ episode, episodes, slug, groups }: Props) {
   const [selected, setSelected] = useState<string | null>(null);
   const [playlistSearch, setPlaylistSearch] = useState("");
   const { record } = useHistory();
@@ -85,7 +83,7 @@ export function WatchClient({ episode, episodes, slug, groups, animekompiSlug }:
             s.href.includes("/embed") ||
             s.href.includes("blogger.com/video.g") ||
             s.href.includes("ok.ru/videoembed") ||
-            s.href.includes("berkasdrive.com")
+            s.href.includes("filedon.co/embed")
           ) {
             return s.href;
           }
@@ -170,39 +168,37 @@ export function WatchClient({ episode, episodes, slug, groups, animekompiSlug }:
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* Video Player with Danmaku Overlay */}
-      <DanmakuOverlay episodeSlug={slug} animekompiSlug={animekompiSlug}>
-        <div className="relative overflow-hidden rounded-xl border border-border/80 bg-black shadow-xl ring-1 ring-white/10 sm:rounded-2xl">
-          {shownUrl ? (
-            <div className="relative aspect-video w-full bg-black">
-              <iframe
-                key={shownUrl}
-                src={shownUrl}
-                title={episode.title}
-                className="h-full w-full border-0"
-                allowFullScreen
-                referrerPolicy="no-referrer"
-                allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-              />
-            </div>
-          ) : busy ? (
-            <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 bg-card/10 text-muted-foreground">
-              <Loader2 className="h-9 w-9 animate-spin text-primary" />
-              <p className="text-xs font-medium text-muted-foreground animate-pulse">Menghubungkan ke pemutar video…</p>
-            </div>
-          ) : (
-            <div className="flex aspect-video w-full flex-col items-center justify-center gap-2.5 p-6 text-center">
-              <ShieldAlert className="h-9 w-9 text-red-500/90" />
-              <p className="text-sm font-semibold text-foreground">
-                {stuck ? "Server terpilih tidak bisa dihubungi — pilih server lain." : "Tidak ada server yang bisa diputar."}
-              </p>
-              <p className="max-w-md text-xs text-muted-foreground">
-                Silakan pilih server alternatif di bawah atau gunakan link Download untuk kualitas penuh.
-              </p>
-            </div>
-          )}
-        </div>
-      </DanmakuOverlay>
+      {/* Video Player */}
+      <div className="relative overflow-hidden rounded-xl border border-border/80 bg-black shadow-xl ring-1 ring-white/10 sm:rounded-2xl">
+        {shownUrl ? (
+          <div className="relative aspect-video w-full bg-black">
+            <iframe
+              key={shownUrl}
+              src={shownUrl}
+              title={episode.title}
+              className="h-full w-full border-0"
+              allowFullScreen
+              referrerPolicy="no-referrer"
+              allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+            />
+          </div>
+        ) : busy ? (
+          <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 bg-card/10 text-muted-foreground">
+            <Loader2 className="h-9 w-9 animate-spin text-primary" />
+            <p className="text-xs font-medium text-muted-foreground animate-pulse">Menghubungkan ke pemutar video…</p>
+          </div>
+        ) : (
+          <div className="flex aspect-video w-full flex-col items-center justify-center gap-2.5 p-6 text-center">
+            <ShieldAlert className="h-9 w-9 text-red-500/90" />
+            <p className="text-sm font-semibold text-foreground">
+              {stuck ? "Server terpilih tidak bisa dihubungi — pilih server lain." : "Tidak ada server yang bisa diputar."}
+            </p>
+            <p className="max-w-md text-xs text-muted-foreground">
+              Silakan pilih server alternatif di bawah atau gunakan link Download untuk kualitas penuh.
+            </p>
+          </div>
+        )}
+      </div>
 
       {/* Episode Header & Navigation Controls */}
       <div className="flex flex-col gap-3 rounded-xl border border-border/80 bg-card/60 p-3.5 shadow-sm backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between sm:p-4">
@@ -356,11 +352,7 @@ export function WatchClient({ episode, episodes, slug, groups, animekompiSlug }:
                         className={`h-7 px-2.5 text-xs transition-all ${
                           active
                             ? "shadow-sm font-semibold"
-                            : s.provider === "samehadaku"
-                            ? "border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-foreground"
-                            : s.provider === "animekompi"
-                            ? "border border-purple-500/40 bg-purple-500/10 hover:bg-purple-500/20 text-foreground"
-                            : "border border-border/40 hover:border-primary/40"
+                            : "border border-border/40 hover:border-primary/40 text-foreground"
                         }`}
                         disabled={busy}
                         onClick={() => pickServer(s)}
