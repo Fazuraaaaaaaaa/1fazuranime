@@ -79,6 +79,13 @@ export function WatchClient({ episode, episodes, slug, groups }: Props) {
       queryKey: ["server-embed", s.serverId],
       queryFn: async () => {
         if (s.kind === "ext") {
+          if (
+            s.href.includes("/embed") ||
+            s.href.includes("blogger.com/video.g") ||
+            s.href.includes("ok.ru/videoembed")
+          ) {
+            return s.href;
+          }
           const r = await proxyGet<{ url: string; host: string }>("resolve", { url: s.href });
           return r.data.url;
         }
@@ -342,7 +349,11 @@ export function WatchClient({ episode, episodes, slug, groups }: Props) {
                         size="sm"
                         variant={active ? "default" : "secondary"}
                         className={`h-7 px-2.5 text-xs transition-all ${
-                          active ? "shadow-sm font-semibold" : "border border-border/40 hover:border-primary/40"
+                          active
+                            ? "shadow-sm font-semibold"
+                            : s.provider === "samehadaku"
+                            ? "border border-primary/40 bg-primary/10 hover:bg-primary/20 text-foreground"
+                            : "border border-border/40 hover:border-primary/40"
                         }`}
                         disabled={busy}
                         onClick={() => pickServer(s)}

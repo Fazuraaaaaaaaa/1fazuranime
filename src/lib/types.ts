@@ -129,12 +129,13 @@ export interface ServerEmbed {
 
 /** A server button on the watch page (native stream mirror or 1080p download-host embed). */
 export interface WatchServerOption {
-  /** "server" = Sanka mirror, resolve via /api/proxy/server/<serverId> */
+  /** "server" = mirror to resolve via /api/proxy; "ext" = download-host link to resolve */
   kind: "server" | "ext";
   serverId: string;
   title: string;
-  /** ext: original download-host link to resolve; server: mirror id */
+  /** ext: original download-host link to resolve; server: mirror id or endpoint */
   href: string;
+  provider?: "otakudesu" | "samehadaku";
 }
 
 export interface WatchQualityGroup {

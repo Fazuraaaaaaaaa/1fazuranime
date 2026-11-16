@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { getEpisode, getAnimeDetail, sanitizeWatchServers } from "@/lib/api";
+import { getEpisode, getAnimeDetail, sanitizeWatchServers, getSamehadakuBackup } from "@/lib/api";
 import { WatchClient } from "@/components/watch-client";
 import { slugToTitle } from "@/lib/utils";
 
@@ -33,6 +33,18 @@ export default async function WatchPage({ params }: Props) {
           await getAnimeDetail(episode.animeId).catch(() => null)
         )?.data.episodeList ?? [];
 
+  const currentEp = episodes.find((e) => e.episodeId === params.slug);
+  const currentEpNumber =
+    currentEp?.eps ??
+    (episode.title.match(/Episode\s*(\d+)/i) ? parseInt(episode.title.match(/Episode\s*(\d+)/i)![1], 10) : undefined);
+
+  const animeTitle = episode.anime?.title ?? slugToTitle(episode.animeId);
+
+  // Auto-fallback: search and fetch Samehadaku backup servers if episode number is known
+  const samehadakuBackup = currentEpNumber
+    ? await getSamehadakuBackup(animeTitle, currentEpNumber).catch(() => null)
+    : null;
+
   return (
     <div className="container max-w-5xl py-6">
       <nav className="mb-3 text-sm text-muted-foreground">
@@ -42,7 +54,12 @@ export default async function WatchPage({ params }: Props) {
         <span className="mx-1.5">/</span>
         <span className="text-foreground">{episode.title}</span>
       </nav>
-      <WatchClient episode={episode} episodes={episodes} slug={params.slug} groups={sanitizeWatchServers(episode)} />
+      <WatchClient
+        episode={episode}
+        episodes={episodes}
+        slug={params.slug}
+        groups={sanitizeWatchServers(episode, samehadakuBackup)}
+      />
     </div>
   );
 }

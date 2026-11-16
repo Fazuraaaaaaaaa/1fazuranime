@@ -436,7 +436,104 @@ export function extractQualityResolution(title: string): number {
   return 0;
 }
 
-export function sanitizeWatchServers(episode: EpisodeData): WatchQualityGroup[] {
+export interface SamehadakuBackupData {
+  defaultStreamingUrl?: string;
+  server?: {
+    qualities?: Array<{
+      title: string;
+      serverList?: Array<{
+        title: string;
+        serverId: string;
+        href: string;
+      }>;
+    }>;
+  };
+}
+
+export async function getSamehadakuBackup(
+  animeTitle: string,
+  episodeNumber: number,
+): Promise<SamehadakuBackupData | null> {
+  if (!animeTitle || !episodeNumber) return null;
+
+  const cleanTitle = animeTitle
+    .replace(/\b(?:season|s)\s*\d+/gi, "")
+    .replace(/\bpart\s*\d+/gi, "")
+    .replace(/\bepisode\s*\d+/gi, "")
+    .replace(/\b(?:sub|subtitle)\s*(?:indo|indonesia)?\b/gi, "")
+    .replace(/[^\w\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleanTitle) return null;
+
+  const cacheKey = `samehadaku-backup:${cleanTitle.toLowerCase()}:${episodeNumber}`;
+  const hit = cache.resolve<SamehadakuBackupData>(cacheKey);
+  if (hit) {
+    if (hit.state === "fresh") return hit.entry.value;
+    void refreshSamehadakuBackup(cacheKey, cleanTitle, episodeNumber).catch(() => {});
+    return hit.entry.value;
+  }
+
+  return refreshSamehadakuBackup(cacheKey, cleanTitle, episodeNumber);
+}
+
+async function refreshSamehadakuBackup(
+  cacheKey: string,
+  cleanTitle: string,
+  episodeNumber: number,
+): Promise<SamehadakuBackupData | null> {
+  try {
+    const searchRes = await apiGet<{ animeList: AnimeCard[] }>(
+      `samehadaku/search?q=${encodeURIComponent(cleanTitle)}`,
+      TTL.SEARCH,
+    );
+    const animeList = searchRes.envelope.data?.animeList ?? [];
+    if (animeList.length === 0) {
+      cache.set(cacheKey, { defaultStreamingUrl: "" }, 600, 3600);
+      return null;
+    }
+
+    const matchedAnime = animeList[0];
+    const detailRes = await apiGet<{ episodeList: Array<{ title: string; episodeId: string }> }>(
+      `samehadaku/anime/${encodeURIComponent(matchedAnime.animeId)}`,
+      TTL.DETAIL,
+    );
+    const epList = detailRes.envelope.data?.episodeList ?? [];
+
+    const targetEp = epList.find((e) => {
+      const match = String(e.title || "").match(/Episode\s*(\d+)/i) || String(e.title || "").match(/(\d+)/);
+      return match && parseInt(match[1], 10) === episodeNumber;
+    });
+
+    if (!targetEp) {
+      cache.set(cacheKey, { defaultStreamingUrl: "" }, 600, 3600);
+      return null;
+    }
+
+    const epRes = await apiGet<EpisodeData>(
+      `samehadaku/episode/${encodeURIComponent(targetEp.episodeId)}`,
+      TTL.EPISODE,
+    );
+
+    const out: SamehadakuBackupData = {
+      defaultStreamingUrl: epRes.envelope.data?.defaultStreamingUrl || "",
+      server: epRes.envelope.data?.server,
+    };
+
+    cache.set(cacheKey, out, TTL.EPISODE, TTL.EPISODE * 2);
+    return out;
+  } catch {
+    const empty: SamehadakuBackupData = { defaultStreamingUrl: "" };
+    cache.set(cacheKey, empty, 300, 1800);
+    return null;
+  }
+}
+
+export function sanitizeWatchServers(
+  episode: EpisodeData,
+  backup?: SamehadakuBackupData | null,
+): WatchQualityGroup[] {
   const groups: WatchQualityGroup[] = [];
 
   // Keep every non-blocked native mirror; the client probes its resolved URL.
@@ -510,6 +607,58 @@ export function sanitizeWatchServers(episode: EpisodeData): WatchQualityGroup[] 
       } else if (extServers.length > 0) {
         // No native group existed for this resolution — create it with backup servers
         groups.push({ title: `${res}p`, servers: extServers });
+      }
+    }
+  }
+
+  // Inject Samehadaku backup servers if available
+  if (backup) {
+    if (backup.defaultStreamingUrl) {
+      const u = backup.defaultStreamingUrl;
+      const isBlogger = /blogger\.com/i.test(u) || /blogspot\.com/i.test(u);
+      const isIcefile = /icefile\.my\.id/i.test(u);
+      const hostLabel = isBlogger ? "Blogger HD (Samehadaku)" : isIcefile ? "Icefile HD (Samehadaku)" : "Stream (Samehadaku)";
+
+      const defaultServer: WatchServerOption = {
+        kind: "ext",
+        serverId: `samehadaku:default:${u}`,
+        title: hostLabel,
+        href: u,
+        provider: "samehadaku",
+      };
+
+      const targetGroup = groups.find((g) => extractQualityResolution(g.title) === 720) || groups[0];
+      if (targetGroup) {
+        if (!targetGroup.servers.some((s) => s.href === u)) {
+          targetGroup.servers.unshift(defaultServer);
+        }
+      } else {
+        groups.push({ title: "720p", servers: [defaultServer] });
+      }
+    }
+
+    for (const q of backup.server?.qualities ?? []) {
+      if (!q || !Array.isArray(q.serverList)) continue;
+      const res = extractQualityResolution(q.title) || 720;
+      const sameServers: WatchServerOption[] = q.serverList
+        .filter((s) => s && s.serverId)
+        .map((s) => ({
+          kind: "server" as const,
+          serverId: `samehadaku:${s.serverId}`,
+          title: `${normalizeHostTitle(s.title)} (Samehadaku)`,
+          href: s.href ?? "",
+          provider: "samehadaku" as const,
+        }));
+
+      if (sameServers.length === 0) continue;
+
+      const idx = groups.findIndex((g) => extractQualityResolution(g.title) === res);
+      if (idx !== -1) {
+        const existingHrefs = new Set(groups[idx].servers.map((s) => s.href));
+        const newServers = sameServers.filter((s) => !existingHrefs.has(s.href));
+        groups[idx].servers.push(...newServers);
+      } else {
+        groups.push({ title: `${res}p`, servers: sameServers });
       }
     }
   }

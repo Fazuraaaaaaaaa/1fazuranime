@@ -435,4 +435,77 @@ describe("sanitizeWatchServers", () => {
       { kind: "ext", serverId: "ext:https://acefile.co/f/480123", title: "Acefile", href: "https://acefile.co/f/480123" },
     ]);
   });
+
+  it("injects Samehadaku backup servers and default Blogger/Icefile embed seamlessly", () => {
+    const mockEpisode: EpisodeData = {
+      title: "Otakudesu Episode",
+      animeId: "otaku-slug",
+      defaultStreamingUrl: "",
+      server: {
+        qualities: [
+          {
+            title: "720p",
+            serverList: [{ serverId: "otaku-dead-srv", title: "otakuwatch", href: "/server/dead" }],
+          },
+        ],
+      },
+      downloadUrl: { qualities: [] },
+      hasPrevEpisode: false,
+      hasNextEpisode: false,
+      prevEpisode: null,
+      nextEpisode: null,
+    };
+
+    const backupData = {
+      defaultStreamingUrl: "https://www.blogger.com/video.g?token=blogger-token-123",
+      server: {
+        qualities: [
+          {
+            title: "1080p",
+            serverList: [
+              { serverId: "same-mega-1080", title: "Mega 1080p", href: "/samehadaku/server/same-mega-1080" },
+            ],
+          },
+          {
+            title: "720p",
+            serverList: [
+              { serverId: "same-blogger-720", title: "Blogspot", href: "/samehadaku/server/same-blogger-720" },
+            ],
+          },
+        ],
+      },
+    };
+
+    const groups = sanitizeWatchServers(mockEpisode, backupData);
+    expect(groups).toHaveLength(2);
+
+    // 1080p has Samehadaku Mega
+    const g1080 = groups.find((g) => g.title === "1080p");
+    expect(g1080).toBeDefined();
+    expect(g1080?.servers[0]).toEqual({
+      kind: "server",
+      serverId: "samehadaku:same-mega-1080",
+      title: "Mega (Samehadaku)",
+      href: "/samehadaku/server/same-mega-1080",
+      provider: "samehadaku",
+    });
+
+    // 720p has direct Blogger HD embed unshifted, and Blogspot server appended
+    const g720 = groups.find((g) => g.title === "720p");
+    expect(g720).toBeDefined();
+    expect(g720?.servers[0]).toEqual({
+      kind: "ext",
+      serverId: "samehadaku:default:https://www.blogger.com/video.g?token=blogger-token-123",
+      title: "Blogger HD (Samehadaku)",
+      href: "https://www.blogger.com/video.g?token=blogger-token-123",
+      provider: "samehadaku",
+    });
+    expect(g720?.servers[1]).toEqual({
+      kind: "server",
+      serverId: "samehadaku:same-blogger-720",
+      title: "Blogger (Samehadaku)",
+      href: "/samehadaku/server/same-blogger-720",
+      provider: "samehadaku",
+    });
+  });
 });
