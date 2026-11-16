@@ -469,7 +469,7 @@ describe("sanitizeWatchServers", () => {
           {
             title: "720p",
             serverList: [
-              { serverId: "same-blogger-720", title: "Blogspot", href: "/samehadaku/server/same-blogger-720" },
+              { serverId: "same-filedon-720", title: "VIP STREAMING", href: "/samehadaku/server/same-filedon-720" },
             ],
           },
         ],
@@ -477,7 +477,7 @@ describe("sanitizeWatchServers", () => {
     };
 
     const groups = sanitizeWatchServers(mockEpisode, backupData);
-    expect(groups).toHaveLength(2);
+    expect(groups).toHaveLength(3);
 
     // 1080p has Mega with clean title (no provider tag)
     const g1080 = groups.find((g) => g.title === "1080p");
@@ -489,11 +489,15 @@ describe("sanitizeWatchServers", () => {
       href: "/samehadaku/server/same-mega-1080",
     });
 
-    // 720p has direct Blogger HD embed and Blogger server with clean title
+    // 720p has Filedon from VIP STREAMING
     const g720 = groups.find((g) => g.title === "720p");
     expect(g720).toBeDefined();
-    expect(g720?.servers.some((s) => s.title === "Blogger HD")).toBe(true);
-    expect(g720?.servers.some((s) => s.title === "Blogger")).toBe(true);
+    expect(g720?.servers.some((s) => s.title === "Filedon")).toBe(true);
+
+    // 360p has Blogger
+    const g360 = groups.find((g) => g.title === "360p");
+    expect(g360).toBeDefined();
+    expect(g360?.servers.some((s) => s.title === "Blogger")).toBe(true);
   });
 
   it("prioritizes Filedon at top position (#1) across server qualities", () => {

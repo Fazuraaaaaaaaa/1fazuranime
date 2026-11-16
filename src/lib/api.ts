@@ -624,7 +624,8 @@ export function sanitizeWatchServers(
       const isBlogger = /blogger\.com/i.test(u) || /blogspot\.com/i.test(u);
       const isIcefile = /icefile\.my\.id/i.test(u);
       const isFiledon = /filedon\.co/i.test(u);
-      const hostLabel = isBlogger ? "Blogger HD" : isIcefile ? "Icefile HD" : isFiledon ? "Filedon HD" : "HD Stream";
+      const hostLabel = isBlogger ? "Blogger" : isIcefile ? "Icefile" : isFiledon ? "Filedon" : "Stream";
+      const targetRes = isBlogger ? 360 : 720;
 
       const defaultServer: WatchServerOption = {
         kind: "ext",
@@ -633,37 +634,43 @@ export function sanitizeWatchServers(
         href: u,
       };
 
-      const targetGroup = groups.find((g) => extractQualityResolution(g.title) === 720) || groups[0];
+      const targetGroup = groups.find((g) => extractQualityResolution(g.title) === targetRes);
       if (targetGroup) {
         if (!targetGroup.servers.some((s) => s.href === u)) {
           targetGroup.servers.unshift(defaultServer);
         }
       } else {
-        groups.push({ title: "720p", servers: [defaultServer] });
+        groups.push({ title: `${targetRes}p`, servers: [defaultServer] });
       }
     }
 
     for (const q of backup.server?.qualities ?? []) {
       if (!q || !Array.isArray(q.serverList)) continue;
-      const res = extractQualityResolution(q.title) || 720;
-      const sameServers: WatchServerOption[] = q.serverList
-        .filter((s) => s && s.serverId)
-        .map((s) => ({
-          kind: "server" as const,
+
+      for (const s of q.serverList) {
+        if (!s || !s.serverId) continue;
+        const hostTitle = normalizeHostTitle(s.title);
+        // Blogger/Blogspot defaults to 360p, other unknown qualities default to 720p
+        let res = extractQualityResolution(q.title);
+        if (!res) {
+          res = hostTitle === "Blogger" ? 360 : 720;
+        }
+
+        const serverOpt: WatchServerOption = {
+          kind: "server",
           serverId: `samehadaku:${s.serverId}`,
-          title: normalizeHostTitle(s.title),
+          title: hostTitle,
           href: s.href ?? "",
-        }));
+        };
 
-      if (sameServers.length === 0) continue;
-
-      const idx = groups.findIndex((g) => extractQualityResolution(g.title) === res);
-      if (idx !== -1) {
-        const existingHrefs = new Set(groups[idx].servers.map((s) => s.href));
-        const newServers = sameServers.filter((s) => !existingHrefs.has(s.href));
-        groups[idx].servers.push(...newServers);
-      } else {
-        groups.push({ title: `${res}p`, servers: sameServers });
+        const idx = groups.findIndex((g) => extractQualityResolution(g.title) === res);
+        if (idx !== -1) {
+          if (!groups[idx].servers.some((existing) => existing.href === s.href)) {
+            groups[idx].servers.push(serverOpt);
+          }
+        } else {
+          groups.push({ title: `${res}p`, servers: [serverOpt] });
+        }
       }
     }
   }
