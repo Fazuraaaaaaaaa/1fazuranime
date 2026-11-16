@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { getEpisode, getAnimeDetail, sanitizeWatchServers, getSamehadakuBackup } from "@/lib/api";
+import { getEpisode, getAnimeDetail, sanitizeWatchServers, getSamehadakuBackup, getAnimekompiBackup } from "@/lib/api";
 import { WatchClient } from "@/components/watch-client";
 import { slugToTitle } from "@/lib/utils";
 
@@ -40,10 +40,13 @@ export default async function WatchPage({ params }: Props) {
 
   const animeTitle = episode.anime?.title ?? slugToTitle(episode.animeId);
 
-  // Auto-fallback: search and fetch Samehadaku backup servers if episode number is known
-  const samehadakuBackup = currentEpNumber
-    ? await getSamehadakuBackup(animeTitle, currentEpNumber).catch(() => null)
-    : null;
+  // Triple Backup: search and fetch Samehadaku & Animekompi backup servers in parallel
+  const [samehadakuBackup, animekompiBackup] = currentEpNumber
+    ? await Promise.all([
+        getSamehadakuBackup(animeTitle, currentEpNumber).catch(() => null),
+        getAnimekompiBackup(animeTitle, currentEpNumber).catch(() => null),
+      ])
+    : [null, null];
 
   return (
     <div className="container max-w-5xl py-6">
@@ -58,7 +61,8 @@ export default async function WatchPage({ params }: Props) {
         episode={episode}
         episodes={episodes}
         slug={params.slug}
-        groups={sanitizeWatchServers(episode, samehadakuBackup)}
+        groups={sanitizeWatchServers(episode, samehadakuBackup, animekompiBackup)}
+        animekompiSlug={animekompiBackup?.episodeSlug}
       />
     </div>
   );

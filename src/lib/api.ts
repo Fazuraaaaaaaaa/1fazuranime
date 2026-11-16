@@ -21,6 +21,7 @@ import type {
   ServerEmbed,
   WatchQualityGroup,
   WatchServerOption,
+  AnimekompiBackupData,
 } from "./types";
 
 export type CacheKind = "LIST" | "DETAIL" | "EPISODE" | "SEARCH" | "SERVER";
@@ -227,6 +228,10 @@ const EMBED_PATTERNS = [
       return m ? `https://pixeldrain.com/u/${m[1]}` : u;
     },
   },
+  {
+    test: /^https?:\/\/(?:[a-z0-9-]+\.)?berkasdrive\.(?:com|org)\/streaming\/\?id=([\w=/-]+)/i,
+    toEmbed: (u: string) => u,
+  },
 ] as const;
 
 export interface ResolvedEmbed {
@@ -383,7 +388,7 @@ function refreshExternal(key: string, target: string): Promise<ResolvedEmbed> {
 
 const STREAM_BLOCKLIST = /(updesu|ondesu|desustream|odstream|odcdn|otakuwatch)/i;
 const MEGA_TITLE = /^mega(?:\.nz)?$/i;
-export const SUPPORTED_HOST_TITLE = /^(?:mega(?:\.nz)?|filedon|viking(?:file)?|acefile|vid\s*hide(?:pro)?|odvidhide|g(?:oogle)?\s*drive|mp4upload|icefile|blogger|blogspot|pixeldrain|okru|ok\.ru)$/i;
+export const SUPPORTED_HOST_TITLE = /^(?:mega(?:\.nz)?|filedon|viking(?:file)?|acefile|vid\s*hide(?:pro)?|odvidhide|g(?:oogle)?\s*drive|mp4upload|icefile|blogger|blogspot|pixeldrain|okru|ok\.ru|berkasdrive)$/i;
 
 export function isMegaTitle(title: string): boolean {
   return MEGA_TITLE.test((title ?? "").trim());
@@ -401,6 +406,7 @@ export function normalizeHostTitle(title: string): string {
   if (/^icefile/i.test(t)) return "Icefile";
   if (/(?:blogger|blogspot)/i.test(t)) return "Blogger";
   if (/^pixeldrain/i.test(t)) return "Pixeldrain";
+  if (/^berkasdrive/i.test(t)) return "Berkasdrive";
   if (/(?:okru|ok\.ru)/i.test(t)) return "OK.ru";
   return t;
 }
@@ -409,14 +415,15 @@ const HOST_PRIORITY: Record<string, number> = {
   Mega: 1,
   Icefile: 2,
   Blogger: 3,
-  Filedon: 4,
-  VikingFile: 5,
-  Acefile: 6,
-  Vidhide: 7,
-  "Google Drive": 8,
-  Pixeldrain: 9,
-  "OK.ru": 10,
-  Mp4upload: 11,
+  Berkasdrive: 4,
+  Filedon: 5,
+  VikingFile: 6,
+  Acefile: 7,
+  Vidhide: 8,
+  "Google Drive": 9,
+  Pixeldrain: 10,
+  "OK.ru": 11,
+  Mp4upload: 12,
 };
 
 export function isSupportedHost(title: string, url: string): boolean {
@@ -530,9 +537,159 @@ async function refreshSamehadakuBackup(
   }
 }
 
+export async function getAnimekompiBackup(
+  animeTitle: string,
+  episodeNumber: number,
+): Promise<AnimekompiBackupData | null> {
+  if (!animeTitle || !episodeNumber) return null;
+
+  const cleanTitle = animeTitle
+    .replace(/\b(?:season|s)\s*\d+/gi, "")
+    .replace(/\bpart\s*\d+/gi, "")
+    .replace(/\bepisode\s*\d+/gi, "")
+    .replace(/\b(?:sub|subtitle)\s*(?:indo|indonesia)?\b/gi, "")
+    .replace(/[^\w\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleanTitle) return null;
+
+  const cacheKey = `animekompi-backup:${cleanTitle.toLowerCase()}:${episodeNumber}`;
+  const hit = cache.resolve<AnimekompiBackupData>(cacheKey);
+  if (hit) {
+    if (hit.state === "fresh") return hit.entry.value;
+    void refreshAnimekompiBackup(cacheKey, cleanTitle, episodeNumber).catch(() => {});
+    return hit.entry.value;
+  }
+
+  return refreshAnimekompiBackup(cacheKey, cleanTitle, episodeNumber);
+}
+
+async function refreshAnimekompiBackup(
+  cacheKey: string,
+  cleanTitle: string,
+  episodeNumber: number,
+): Promise<AnimekompiBackupData | null> {
+  try {
+    const searchRes = await apiGet<Array<{ id: number; title: string; slug: string }>>(
+      `animekompi/search?q=${encodeURIComponent(cleanTitle)}`,
+      TTL.SEARCH,
+    );
+    const searchData = searchRes.envelope.data ?? [];
+    if (!Array.isArray(searchData) || searchData.length === 0) {
+      cache.set(cacheKey, {}, 600, 3600);
+      return null;
+    }
+
+    const matchedAnime = searchData[0];
+    const detailRes = await apiGet<{ episodes?: Array<{ num?: string; title?: string; slug?: string }> }>(
+      `animekompi/detail/${encodeURIComponent(matchedAnime.slug)}`,
+      TTL.DETAIL,
+    );
+    const epList = detailRes.envelope.data?.episodes ?? [];
+
+    const targetEp = epList.find((e) => {
+      const numMatch = e.num ? parseInt(e.num, 10) === episodeNumber : false;
+      if (numMatch) return true;
+      const titleMatch = String(e.title || "").match(/Episode\s*(\d+)/i) || String(e.title || "").match(/(\d+)/);
+      return titleMatch && parseInt(titleMatch[1], 10) === episodeNumber;
+    });
+
+    if (!targetEp || !targetEp.slug) {
+      cache.set(cacheKey, {}, 600, 3600);
+      return null;
+    }
+
+    const epRes = await apiGet<{
+      default_iframe?: string;
+      mirrors?: Array<{ name: string; server: string; url: string; type?: string; quality?: string }>;
+      sources?: Array<{ id: number; label: string; url: string; kind: string; quality: string }>;
+    }>(
+      `animekompi/episode/${encodeURIComponent(targetEp.slug)}`,
+      TTL.EPISODE,
+    );
+
+    const out: AnimekompiBackupData = {
+      defaultIframe: epRes.envelope.data?.default_iframe || "",
+      episodeSlug: targetEp.slug,
+      mirrors: epRes.envelope.data?.mirrors || [],
+      sources: epRes.envelope.data?.sources || [],
+    };
+
+    cache.set(cacheKey, out, TTL.EPISODE, TTL.EPISODE * 2);
+    return out;
+  } catch {
+    const empty: AnimekompiBackupData = {};
+    cache.set(cacheKey, empty, 300, 1800);
+    return null;
+  }
+}
+
+export async function getSamehadakuHome(): Promise<AnimeCard[]> {
+  try {
+    const res = await apiGet<{
+      recent?: { animeList?: Array<{ title: string; poster: string; episodes?: string; releasedOn?: string; animeId?: string; slug?: string }> } | Array<{ title: string; poster: string; episodes?: string; releasedOn?: string; animeId?: string; slug?: string }>;
+    }>("samehadaku/home", TTL.LIST);
+
+    const rawList = Array.isArray(res.envelope.data?.recent)
+      ? res.envelope.data?.recent
+      : res.envelope.data?.recent?.animeList ?? [];
+
+    return rawList.map((item) => {
+      const id = item.animeId || item.slug || "";
+      return {
+        title: item.title,
+        poster: item.poster,
+        episodes: parseInt(item.episodes || "0", 10) || undefined,
+        latestReleaseDate: item.releasedOn,
+        animeId: id,
+        href: `/anime/${id}`,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+export async function getAnimekompiHome(): Promise<AnimeCard[]> {
+  try {
+    const res = await apiGet<{
+      featured?: Array<{ id: number; title: string; slug: string; poster?: string; image?: string; cover?: string }>;
+      latest_episodes?: Array<{ id: number | null; title: string; slug: string; episode?: string; anime_title?: string; anime_slug?: string; poster?: string; image?: string }>;
+      latestEpisodes?: Array<{ id: number | null; title: string; slug: string; episode?: string; anime_title?: string; anime_slug?: string; poster?: string; image?: string }>;
+    }>("animekompi/home", TTL.LIST);
+
+    const d = res.envelope.data;
+    const latest = d?.latest_episodes || d?.latestEpisodes || [];
+    if (Array.isArray(latest) && latest.length > 0) {
+      return latest.map((item) => {
+        const id = item.anime_slug || item.slug || "";
+        return {
+          title: item.anime_title || item.title,
+          poster: item.poster || item.image || "",
+          episodes: parseInt(item.episode || "0", 10) || undefined,
+          animeId: id,
+          href: `/anime/${id}`,
+        };
+      });
+    }
+
+    const featured = d?.featured || [];
+    return featured.map((item) => ({
+      title: item.title,
+      poster: item.poster || item.image || item.cover || "",
+      animeId: item.slug,
+      href: `/anime/${item.slug}`,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export function sanitizeWatchServers(
   episode: EpisodeData,
   backup?: SamehadakuBackupData | null,
+  kompiBackup?: AnimekompiBackupData | null,
 ): WatchQualityGroup[] {
   const groups: WatchQualityGroup[] = [];
 
@@ -659,6 +816,56 @@ export function sanitizeWatchServers(
         groups[idx].servers.push(...newServers);
       } else {
         groups.push({ title: `${res}p`, servers: sameServers });
+      }
+    }
+  }
+
+  // Inject Animekompi backup servers if available
+  if (kompiBackup) {
+    if (kompiBackup.defaultIframe) {
+      const u = kompiBackup.defaultIframe;
+      const isBlogger = /blogger\.com/i.test(u) || /blogspot\.com/i.test(u);
+      const hostLabel = isBlogger ? "Blogger HD (Animekompi)" : "Stream (Animekompi)";
+
+      const defaultKompiServer: WatchServerOption = {
+        kind: "ext",
+        serverId: `animekompi:default:${u}`,
+        title: hostLabel,
+        href: u,
+        provider: "animekompi",
+      };
+
+      const targetGroup = groups.find((g) => extractQualityResolution(g.title) === 720) || groups[0];
+      if (targetGroup) {
+        if (!targetGroup.servers.some((s) => s.href === u)) {
+          targetGroup.servers.unshift(defaultKompiServer);
+        }
+      } else {
+        groups.push({ title: "720p", servers: [defaultKompiServer] });
+      }
+    }
+
+    for (const m of kompiBackup.mirrors ?? []) {
+      if (!m || !m.url) continue;
+      const res = extractQualityResolution(m.quality || m.name || m.server || "") || 720;
+      const hostTitle = normalizeHostTitle(m.server || m.name || "Server");
+      const label = `${hostTitle} (Animekompi)`;
+
+      const kompiServer: WatchServerOption = {
+        kind: "ext",
+        serverId: `ext:${m.url}`,
+        title: label,
+        href: m.url,
+        provider: "animekompi",
+      };
+
+      const idx = groups.findIndex((g) => extractQualityResolution(g.title) === res);
+      if (idx !== -1) {
+        if (!groups[idx].servers.some((s) => s.href === m.url)) {
+          groups[idx].servers.push(kompiServer);
+        }
+      } else {
+        groups.push({ title: `${res}p`, servers: [kompiServer] });
       }
     }
   }

@@ -508,4 +508,63 @@ describe("sanitizeWatchServers", () => {
       provider: "samehadaku",
     });
   });
+
+  it("injects Animekompi backup servers alongside Samehadaku and Otakudesu (Triple Backup)", () => {
+    const mockEpisode: EpisodeData = {
+      title: "Test Episode",
+      animeId: "test-slug",
+      defaultStreamingUrl: "",
+      server: {
+        qualities: [
+          {
+            title: "720p",
+            serverList: [{ serverId: "otaku-1", title: "Vidhide", href: "https://vidhide.com" }],
+          },
+        ],
+      },
+      downloadUrl: { qualities: [] },
+      hasPrevEpisode: false,
+      hasNextEpisode: false,
+      prevEpisode: null,
+      nextEpisode: null,
+    };
+
+    const sameBackup = {
+      defaultStreamingUrl: "https://www.blogger.com/video.g?token=same-token",
+    };
+
+    const kompiBackup = {
+      defaultIframe: "https://www.blogger.com/video.g?token=kompi-token",
+      episodeSlug: "kompi-ep-slug",
+      mirrors: [
+        {
+          name: "720p [1]",
+          server: "Berkasdrive",
+          url: "https://dl.berkasdrive.com/streaming/?id=123",
+          quality: "720p",
+        },
+        {
+          name: "1080p [1]",
+          server: "Mega",
+          url: "https://mega.nz/embed/kompi-1080",
+          quality: "1080p",
+        },
+      ],
+    };
+
+    const groups = sanitizeWatchServers(mockEpisode, sameBackup, kompiBackup);
+
+    // Check 1080p has Animekompi Mega
+    const g1080 = groups.find((g) => g.title === "1080p");
+    expect(g1080).toBeDefined();
+    expect(g1080?.servers.some((s) => s.provider === "animekompi" && s.title.includes("Animekompi"))).toBe(true);
+
+    // Check 720p has Otakudesu, Samehadaku, and Animekompi servers
+    const g720 = groups.find((g) => g.title === "720p");
+    expect(g720).toBeDefined();
+    const providers = g720?.servers.map((s) => s.provider);
+    expect(providers).toContain("samehadaku");
+    expect(providers).toContain("animekompi");
+    expect(g720?.servers.some((s) => s.title.includes("Berkasdrive (Animekompi)"))).toBe(true);
+  });
 });
