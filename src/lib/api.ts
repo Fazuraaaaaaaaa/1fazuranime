@@ -101,7 +101,10 @@ export function getEpisode(slug: string) {
 }
 
 export function resolveServer(serverId: string) {
-  return call<ServerEmbed>(`server/${encodeURIComponent(serverId)}`, "SERVER");
+  if (!serverId || typeof serverId !== "string" || !serverId.trim()) {
+    throw new Error("Invalid serverId");
+  }
+  return call<ServerEmbed>(`server/${encodeURIComponent(serverId.trim())}`, "SERVER");
 }
 
 export function searchAnime(keyword: string) {
@@ -144,45 +147,51 @@ const EXTERNAL_TIMEOUT_MS = 12_000;
 /** Final URL after redirects -> playable iframe URL. */
 const EMBED_PATTERNS = [
   {
-    test: /^https?:\/\/(?:www\.)?filedon\.co\/view\/[\w-]+/i,
-    toEmbed: (u: string) => u.replace(/\/view\//i, "/embed/"),
+    test: /^https?:\/\/(?:www\.)?filedon\.co\/(?:view|embed|f)\/([\w-]+)/i,
+    toEmbed: (u: string) => {
+      const m = u.match(/\/(?:view|embed|f)\/([\w-]+)/i);
+      return m ? `https://filedon.co/embed/${m[1]}` : u;
+    },
   },
   {
     // vikingfile lands on vik1ngfile.site (or vikingfile.com); /embed/ 302s to vikingfile.com
-    test: /^https?:\/\/(?:www\.)?(?:vik1ngfile\.site|vikingfile\.com)\/f\/([\w-]+)/i,
+    test: /^https?:\/\/(?:www\.)?(?:vik(?:1ng|ing)file\.(?:site|com|org)|vikingfile\.com)\/(?:f|embed|d)\/([\w-]+)/i,
     toEmbed: (u: string) => {
-      const m = u.match(/\/f\/([\w-]+)/i);
+      const m = u.match(/\/(?:f|embed|d)\/([\w-]+)/i);
       return m ? `https://vikingfile.com/embed/${m[1]}` : u;
     },
   },
   {
     // mega file page -> embed player; the #key fragment is REQUIRED (without it
     // the player renders a decryption error), so the pattern only matches with it.
-    test: /^https?:\/\/(?:www\.)?mega\.nz\/file\/([\w-]+)#([\w-]+)/i,
+    test: /^https?:\/\/(?:www\.)?mega\.(?:nz|co\.nz)\/(?:file\/([\w-]+)#([\w-]+)|embed\/([\w-]+)#([\w-]+)|#!(?:file\/)?([\w-]+)!([\w-]+))/i,
     toEmbed: (u: string) => {
-      const m = u.match(/^https?:\/\/(?:www\.)?mega\.nz\/file\/([\w-]+)#([\w-]+)/i);
-      return m ? `https://mega.nz/embed/${m[1]}#${m[2]}` : u;
+      const m1 = u.match(/\/(?:file|embed)\/([\w-]+)#([\w-]+)/i);
+      if (m1) return `https://mega.nz/embed/${m1[1]}#${m1[2]}`;
+      const m2 = u.match(/#!(?:file\/)?([\w-]+)!([\w-]+)/i);
+      if (m2) return `https://mega.nz/embed/${m2[1]}#${m2[2]}`;
+      return u;
     },
   },
   {
     // acefile download link -> embed player
-    test: /^https?:\/\/(?:www\.)?acefile\.co\/f\/(\d+)/i,
+    test: /^https?:\/\/(?:www\.)?acefile\.co\/(?:f|player)\/(\d+)/i,
     toEmbed: (u: string) => {
-      const m = u.match(/\/f\/(\d+)/i);
+      const m = u.match(/\/(?:f|player)\/(\d+)/i);
       return m ? `https://acefile.co/player/${m[1]}` : u;
     },
   },
   {
-    test: /^https?:\/\/(?:www\.)?(?:odvidhide|vidhide|vidhidepro)\.com\/(?:v|f|d|embed)\/([\w-]+)/i,
+    test: /^https?:\/\/(?:www\.)?(?:odvidhide|vidhide|vidhidepro|vidhidepre|vidhidevip)\.(?:com|net|org)\/(?:v|f|d|embed)\/([\w-]+)/i,
     toEmbed: (u: string) => {
       const m = u.match(/\/(?:v|f|d|embed)\/([\w-]+)/i);
       return m ? `https://odvidhide.com/embed/${m[1]}` : u;
     },
   },
   {
-    test: /^https?:\/\/(?:drive|docs)\.google\.com\/file\/d\/([\w-]+)/i,
+    test: /^https?:\/\/(?:drive|docs)\.google\.com\/(?:file\/d\/|open\?id=|uc\?id=)([\w-]+)/i,
     toEmbed: (u: string) => {
-      const m = u.match(/\/file\/d\/([\w-]+)/i);
+      const m = u.match(/(?:file\/d\/|open\?id=|uc\?id=)([\w-]+)/i);
       return m ? `https://drive.google.com/file/d/${m[1]}/preview` : u;
     },
   },
@@ -236,8 +245,45 @@ async function fetchFinalUrl(target: string): Promise<string> {
     }
     const loc = res.headers.get("location");
     if (res.status >= 300 && res.status < 400 && loc) {
-      current = new URL(loc, current).toString(); // keeps the #key fragment
-      continue;
+      try {
+        const targetHash = current.includes("#") ? new URL(current).hash : "";
+        const nextUrl = new URL(loc, current);
+        if (!nextUrl.hash && targetHash) {
+          nextUrl.hash = targetHash;
+        }
+        current = nextUrl.toString();
+        continue;
+      } catch {
+        return current;
+      }
+    }
+    if (res.status === 200) {
+      const contentType = res.headers.get("content-type") ?? "";
+      if (contentType.includes("text/html")) {
+        try {
+          const html = await res.text();
+          // Check for meta refresh: <meta http-equiv="refresh" content="0; url=...">
+          const metaMatch = html.match(/<meta[^>]*http-equiv=["']?refresh["']?[^>]*content=["']?[^"'>]*url=([^"'>\s]+)/i);
+          if (metaMatch && metaMatch[1]) {
+            const targetHash = current.includes("#") ? new URL(current).hash : "";
+            const nextUrl = new URL(metaMatch[1], current);
+            if (!nextUrl.hash && targetHash) nextUrl.hash = targetHash;
+            current = nextUrl.toString();
+            continue;
+          }
+          // Check for JS redirect: window.location = "..." or window.location.href = "..." or location.replace("...")
+          const jsMatch = html.match(/(?:window\.)?location(?:\.href|\.replace)?\s*=\s*["']([^"']+)["']/i);
+          if (jsMatch && jsMatch[1] && /^https?:\/\//i.test(jsMatch[1])) {
+            const targetHash = current.includes("#") ? new URL(current).hash : "";
+            const nextUrl = new URL(jsMatch[1], current);
+            if (!nextUrl.hash && targetHash) nextUrl.hash = targetHash;
+            current = nextUrl.toString();
+            continue;
+          }
+        } catch {
+          // ignore parsing error and return current
+        }
+      }
     }
     return current;
   }
@@ -275,19 +321,19 @@ function refreshExternal(key: string, target: string): Promise<ResolvedEmbed> {
     
     // Validate if the embed is actually alive (Pixeldrain/Filedon/etc often have dead links).
     // Mega is already validated during redirect resolution (fetchFinalUrl) and blocks HEAD requests.
-    if (!/mega\.nz/i.test(finalUrl)) {
+    if (!/mega\.(?:nz|co\.nz)/i.test(finalUrl)) {
       try {
         const ac = new AbortController();
         const timer = setTimeout(() => ac.abort(), 4000);
         const probe = await fetch(out.url, { method: "HEAD", signal: ac.signal }).finally(() => clearTimeout(timer));
-        if (probe.status === 404) {
+        if (probe.status === 404 || probe.status === 410) {
           const neg: ResolvedEmbed = { url: "", host: hostOf(finalUrl) };
           cache.set(key, neg, 600, 3600);
-          throw new Error(`${neg.host} file not found (404)`);
+          throw new Error(`${neg.host} file not found (${probe.status})`);
         }
-      } catch (err: any) {
-        if (err.message.includes("404")) throw err;
-        // If HEAD fails due to CORS/network/timeout, we still optimistically return the URL 
+      } catch (err: unknown) {
+        if (err instanceof Error && (err.message.includes("404") || err.message.includes("410"))) throw err;
+        // If HEAD fails due to CORS/network/timeout/method not allowed, we still optimistically return the URL 
         // rather than breaking working servers that block HEAD requests.
       }
     }
@@ -312,20 +358,21 @@ function refreshExternal(key: string, target: string): Promise<ResolvedEmbed> {
 
 const STREAM_BLOCKLIST = /(updesu|ondesu|desustream|odstream|odcdn|otakuwatch)/i;
 const MEGA_TITLE = /^mega(?:\.nz)?$/i;
-export const SUPPORTED_HOST_TITLE = /^(?:mega(?:\.nz)?|filedon|viking(?:file)?|acefile|vidhide|g(?:oogle)?\s*drive)$/i;
+export const SUPPORTED_HOST_TITLE = /^(?:mega(?:\.nz)?|filedon|viking(?:file)?|acefile|vid\s*hide(?:pro)?|odvidhide|g(?:oogle)?\s*drive|mp4upload)$/i;
 
 export function isMegaTitle(title: string): boolean {
-  return MEGA_TITLE.test(title.trim());
+  return MEGA_TITLE.test((title ?? "").trim());
 }
 
 export function normalizeHostTitle(title: string): string {
-  const t = title.trim();
+  const t = (title ?? "").trim();
   if (/^mega/i.test(t)) return "Mega";
   if (/^filedon/i.test(t)) return "Filedon";
   if (/^viking/i.test(t)) return "VikingFile";
   if (/^acefile/i.test(t)) return "Acefile";
-  if (/^vidhide/i.test(t)) return "Vidhide";
+  if (/(?:vid\s*hide|odvidhide)/i.test(t)) return "Vidhide";
   if (/^g(?:oogle)?\s*drive/i.test(t)) return "Google Drive";
+  if (/^mp4upload/i.test(t)) return "Mp4upload";
   return t;
 }
 
@@ -336,50 +383,67 @@ const HOST_PRIORITY: Record<string, number> = {
   Acefile: 4,
   Vidhide: 5,
   "Google Drive": 6,
+  Mp4upload: 7,
 };
 
 export function isSupportedHost(title: string, url: string): boolean {
-  if (EMBED_PATTERNS.some((pattern) => pattern.test.test(url))) return true;
-  return SUPPORTED_HOST_TITLE.test(title.trim());
+  if (url && EMBED_PATTERNS.some((pattern) => pattern.test.test(url))) return true;
+  return Boolean(title && SUPPORTED_HOST_TITLE.test(title.trim()));
+}
+
+export function extractQualityResolution(title: string): number {
+  if (!title) return 0;
+  const match = title.match(/(\d{3,4})p?/i);
+  if (match) return parseInt(match[1], 10);
+  if (/4k|uhd/i.test(title)) return 2160;
+  if (/1080|fhd/i.test(title)) return 1080;
+  if (/720|hd/i.test(title)) return 720;
+  if (/480|sd/i.test(title)) return 480;
+  if (/360/i.test(title)) return 360;
+  return 0;
 }
 
 export function sanitizeWatchServers(episode: EpisodeData): WatchQualityGroup[] {
   const groups: WatchQualityGroup[] = [];
 
   // Keep every non-blocked native mirror; the client probes its resolved URL.
-  for (const q of episode.server?.qualities ?? []) {
+  for (const q of episode?.server?.qualities ?? []) {
+    if (!q || !Array.isArray(q.serverList)) continue;
     const servers: WatchServerOption[] = q.serverList
-      .filter((s) => !STREAM_BLOCKLIST.test(`${s.title} ${s.serverId} ${s.href}`))
-      .filter((s, i, arr) => arr.findIndex((x) => x.serverId === s.serverId) === i)
+      .filter((s) => s && s.serverId && !STREAM_BLOCKLIST.test(`${s.title ?? ""} ${s.serverId} ${s.href ?? ""}`))
+      .filter((s, i, arr) => arr.findIndex((x) => x?.serverId === s?.serverId) === i)
       .map((s) => ({
         kind: "server" as const,
         serverId: s.serverId,
-        title: s.title.trim(),
-        href: s.href,
+        title: (s.title ?? "Server").trim(),
+        href: s.href ?? "",
       }));
-    if (servers.length > 0) groups.push({ title: q.title, servers });
+    if (servers.length > 0) {
+      groups.push({ title: (q.title ?? "Unknown").trim(), servers });
+    }
   }
 
   // Collect 1080p servers from download links that can be played in iframe (Mega, Filedon, VikingFile, Acefile, etc.).
-  if (episode.downloadUrl?.qualities) {
+  if (Array.isArray(episode?.downloadUrl?.qualities)) {
     const seenUrls = new Set<string>();
     const seenHosts = new Set<string>();
     const ext1080Servers: WatchServerOption[] = [];
 
     // Prioritize MP4 over MKV if both exist for better browser player compatibility
     const sortedQualities = [...episode.downloadUrl.qualities].sort((a, b) => {
-      const aMp4 = /mp4/i.test(a.title) ? 1 : 0;
-      const bMp4 = /mp4/i.test(b.title) ? 1 : 0;
+      const aMp4 = /mp4/i.test(a?.title ?? "") ? 1 : 0;
+      const bMp4 = /mp4/i.test(b?.title ?? "") ? 1 : 0;
       return bMp4 - aMp4;
     });
 
     for (const d of sortedQualities) {
-      if (!/1080/i.test(d.title)) continue;
+      if (!d || !/1080/i.test(d.title ?? "") || !Array.isArray(d.urls)) continue;
       for (const u of d.urls) {
-        const isSupported = isSupportedHost(u.title, u.url);
+        if (!u || !u.url) continue;
+        const isSupported = isSupportedHost(u.title ?? "", u.url);
         if (!isSupported || seenUrls.has(u.url)) continue;
 
-        const hostName = normalizeHostTitle(u.title);
+        const hostName = normalizeHostTitle(u.title ?? "");
         // Deduplicate so each host (Mega, Filedon, VikingFile, Acefile) appears once in 1080p
         if (seenHosts.has(hostName.toLowerCase())) continue;
 
@@ -398,11 +462,11 @@ export function sanitizeWatchServers(episode: EpisodeData): WatchQualityGroup[] 
     // Sort: Mega first, then Filedon, VikingFile, Acefile, etc.
     ext1080Servers.sort((a, b) => (HOST_PRIORITY[a.title] ?? 99) - (HOST_PRIORITY[b.title] ?? 99));
 
-    const idx = groups.findIndex((g) => /1080/i.test(g.title));
+    const idx = groups.findIndex((g) => extractQualityResolution(g.title) === 1080);
     if (idx !== -1) {
       // Native 1080p exists — append non-duplicate ext servers so all working 1080p providers are available
-      const existingTitles = new Set(groups[idx].servers.map((s) => s.title.toLowerCase()));
-      const newServers = ext1080Servers.filter((s) => !existingTitles.has(s.title.toLowerCase()));
+      const existingTitles = new Set(groups[idx].servers.map((s) => normalizeHostTitle(s.title).toLowerCase()));
+      const newServers = ext1080Servers.filter((s) => !existingTitles.has(normalizeHostTitle(s.title).toLowerCase()));
       if (newServers.length > 0) {
         groups[idx] = { ...groups[idx], servers: [...groups[idx].servers, ...newServers] };
       }
@@ -411,6 +475,9 @@ export function sanitizeWatchServers(episode: EpisodeData): WatchQualityGroup[] 
       groups.push({ title: "1080p", servers: ext1080Servers });
     }
   }
+
+  // Priority ordering: 1080p > 720p > 480p > 360p
+  groups.sort((a, b) => extractQualityResolution(b.title) - extractQualityResolution(a.title));
 
   return groups;
 }

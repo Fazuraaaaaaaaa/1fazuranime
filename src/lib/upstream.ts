@@ -160,7 +160,7 @@ function refresh<T>(key: string, path: string, ttlSec: number, staleWindow: numb
     p = rawFetch<T>(path);
   }
 
-  p.then((env) => cache.set(key, env, ttlSec, staleWindow)).finally(() => inflight.delete(key));
+  p.then((env) => cache.set(key, env, ttlSec, staleWindow), () => {}).finally(() => inflight.delete(key));
   inflight.set(key, p as unknown as Promise<ApiEnvelope<unknown>>);
   return p;
 }

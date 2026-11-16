@@ -1,6 +1,29 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeWatchServers } from "./api";
+import { sanitizeWatchServers, ttlForPath, searchAnime, TTL } from "./api";
 import type { EpisodeData } from "./types";
+
+describe("ttlForPath", () => {
+  it("resolves correct TTL for each route category", () => {
+    expect(ttlForPath("server/test-srv")).toBe(TTL.SERVER);
+    expect(ttlForPath("episode/ep-1")).toBe(TTL.EPISODE);
+    expect(ttlForPath("anime/naruto")).toBe(TTL.DETAIL);
+    expect(ttlForPath("search/naruto+shippuden")).toBe(TTL.SEARCH);
+    expect(ttlForPath("home")).toBe(TTL.LIST);
+    expect(ttlForPath("ongoing-anime")).toBe(TTL.LIST);
+  });
+});
+
+describe("searchAnime", () => {
+  it("resolves empty result without upstream call when keyword is empty or whitespace", async () => {
+    const resEmpty = await searchAnime("");
+    expect(resEmpty.data.animeList).toEqual([]);
+    expect(resEmpty.cache).toBe("fresh");
+
+    const resWhitespace = await searchAnime("   ");
+    expect(resWhitespace.data.animeList).toEqual([]);
+    expect(resWhitespace.cache).toBe("fresh");
+  });
+});
 
 describe("sanitizeWatchServers", () => {
   it("keeps all non-blocked native servers, including Mega", () => {
@@ -228,5 +251,119 @@ describe("sanitizeWatchServers", () => {
         href: "https://link.desustream.com/?id=acefile-id",
       },
     ]);
+  });
+
+  it("strictly enforces priority ordering 1080p > 720p > 480p > 360p regardless of upstream input order", () => {
+    const mockEpisode: EpisodeData = {
+      title: "Test Episode",
+      animeId: "test-slug",
+      defaultStreamingUrl: "",
+      server: {
+        qualities: [
+          {
+            title: "360p",
+            serverList: [{ serverId: "srv-360", title: "Mirror360", href: "/server/360" }],
+          },
+          {
+            title: "720p",
+            serverList: [{ serverId: "srv-720", title: "Mirror720", href: "/server/720" }],
+          },
+          {
+            title: "480p",
+            serverList: [{ serverId: "srv-480", title: "Mirror480", href: "/server/480" }],
+          },
+        ],
+      },
+      downloadUrl: {
+        qualities: [
+          {
+            title: "MP4 1080p",
+            size: "500 MB",
+            urls: [{ title: "Mega", url: "https://mega.nz/file/abc#key1" }],
+          },
+        ],
+      },
+      hasPrevEpisode: false,
+      hasNextEpisode: false,
+      prevEpisode: null,
+      nextEpisode: null,
+    };
+
+    const groups = sanitizeWatchServers(mockEpisode);
+    expect(groups.map((g) => g.title)).toEqual(["1080p", "720p", "480p", "360p"]);
+  });
+
+  it("gracefully handles null, undefined, or corrupted server and download data without crashing", () => {
+    const corruptEpisode = {
+      title: "Corrupt Episode",
+      animeId: "corrupt-slug",
+      server: {
+        qualities: [
+          null,
+          {
+            title: "720p",
+            serverList: [
+              null,
+              { serverId: "", title: "Empty ID", href: "" },
+              { serverId: "valid-srv", title: null, href: null },
+            ],
+          },
+        ],
+      },
+      downloadUrl: {
+        qualities: [
+          null,
+          {
+            title: "MP4 1080p",
+            urls: [null, { title: null, url: "" }, { title: "Filedon", url: "https://filedon.co/view/xyz" }],
+          },
+        ],
+      },
+    } as unknown as EpisodeData;
+
+    expect(() => sanitizeWatchServers(corruptEpisode)).not.toThrow();
+    const groups = sanitizeWatchServers(corruptEpisode);
+    expect(groups).toHaveLength(2);
+    expect(groups[0].title).toBe("1080p");
+    expect(groups[0].servers[0].title).toBe("Filedon");
+    expect(groups[1].title).toBe("720p");
+    expect(groups[1].servers[0].serverId).toBe("valid-srv");
+
+    // Empty episode
+    expect(() => sanitizeWatchServers({} as EpisodeData)).not.toThrow();
+    expect(sanitizeWatchServers({} as EpisodeData)).toEqual([]);
+  });
+
+  it("filters out empty or invalid URLs and dedupes identical external download servers", () => {
+    const mockEpisode: EpisodeData = {
+      title: "Test Episode",
+      animeId: "test-slug",
+      defaultStreamingUrl: "",
+      server: { qualities: [] },
+      downloadUrl: {
+        qualities: [
+          {
+            title: "1080p",
+            urls: [
+              { title: "Filedon", url: "https://filedon.co/view/dup1" },
+              { title: "Filedon Duplicate", url: "https://filedon.co/view/dup1" },
+              { title: "Empty URL", url: "   " },
+              { title: "VikingFile", url: "https://vikingfile.com/f/vik1" },
+            ],
+          },
+        ],
+      },
+      hasPrevEpisode: false,
+      hasNextEpisode: false,
+      prevEpisode: null,
+      nextEpisode: null,
+    };
+
+    const groups = sanitizeWatchServers(mockEpisode);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].title).toBe("1080p");
+    expect(groups[0].servers).toHaveLength(2);
+    expect(groups[0].servers[0].href).toBe("https://filedon.co/view/dup1");
+    expect(groups[0].servers[1].href).toBe("https://vikingfile.com/f/vik1");
   });
 });

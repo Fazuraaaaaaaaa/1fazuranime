@@ -54,7 +54,7 @@ function PageLink({
   disabled?: boolean;
 }) {
   const base =
-    "inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-md border px-2 text-sm font-medium transition-colors";
+    "inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg border border-border/80 px-2.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background";
   if (disabled || !href) {
     return <span className={cn(base, "cursor-not-allowed opacity-40")}>{children}</span>;
   }
@@ -64,8 +64,8 @@ function PageLink({
       className={cn(
         base,
         active
-          ? "border-primary bg-primary text-primary-foreground"
-          : "bg-card hover:border-primary/50 hover:text-primary",
+          ? "border-primary bg-primary text-primary-foreground shadow-sm font-semibold"
+          : "bg-card/70 hover:border-primary/50 hover:text-primary hover:bg-accent/50",
       )}
     >
       {children}

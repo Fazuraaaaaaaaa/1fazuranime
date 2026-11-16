@@ -6,42 +6,42 @@
   :root {
     --background: 0 0% 100%;
     --foreground: 240 10% 3.9%;
-    --card: 0 0% 97%;
+    --card: 0 0% 98%;
     --card-foreground: 240 10% 3.9%;
     --primary: 262 80% 55%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 240 5% 92%;
-    --secondary-foreground: 240 5% 18%;
+    --secondary: 240 5% 93%;
+    --secondary-foreground: 240 5% 15%;
     --muted: 240 5% 94%;
-    --muted-foreground: 240 4% 46%;
-    --accent: 240 5% 94%;
-    --accent-foreground: 240 5% 18%;
+    --muted-foreground: 240 4% 40%;
+    --accent: 240 5% 92%;
+    --accent-foreground: 240 5% 15%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 240 6% 90%;
-    --input: 240 6% 90%;
+    --border: 240 6% 88%;
+    --input: 240 6% 88%;
     --ring: 262 80% 55%;
-    --radius: 0.5rem;
+    --radius: 0.625rem;
   }
 
   .dark {
     --background: 240 10% 4%;
-    --foreground: 0 0% 95%;
-    --card: 240 10% 7%;
-    --card-foreground: 0 0% 95%;
-    --primary: 262 80% 55%;
+    --foreground: 0 0% 96%;
+    --card: 240 10% 7.5%;
+    --card-foreground: 0 0% 96%;
+    --primary: 262 83% 58%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 240 4% 16%;
-    --secondary-foreground: 0 0% 95%;
-    --muted: 240 4% 16%;
-    --muted-foreground: 240 5% 55%;
-    --accent: 240 4% 16%;
-    --accent-foreground: 0 0% 95%;
+    --secondary: 240 4% 15%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 240 4% 15%;
+    --muted-foreground: 240 5% 65%;
+    --accent: 240 4% 17%;
+    --accent-foreground: 0 0% 96%;
     --destructive: 0 62% 52%;
     --destructive-foreground: 0 0% 100%;
-    --border: 240 4% 16%;
-    --input: 240 4% 16%;
-    --ring: 262 80% 55%;
+    --border: 240 4% 18%;
+    --input: 240 4% 18%;
+    --ring: 262 83% 58%;
   }
 }
 
@@ -49,19 +49,33 @@
   * {
     @apply border-border;
   }
+  html {
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
+  }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  ::selection {
+    background-color: hsl(var(--primary) / 0.25);
+    color: hsl(var(--foreground));
   }
 }
 
 /* custom scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted-foreground) / .3);
+  background: hsl(var(--muted-foreground) / 0.25);
   border-radius: 999px;
+  transition: background-color 0.2s ease;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground) / .5);
+  background: hsl(var(--muted-foreground) / 0.45);
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { LayoutGrid, List, ArrowDownWideNarrow, ArrowUpNarrowWide, Check } from "lucide-react";
+import { LayoutGrid, List, ArrowDownWideNarrow, ArrowUpNarrowWide, Check, Play, Search } from "lucide-react";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -38,13 +38,16 @@ export function EpisodeList({ episodes }: Props) {
   return (
     <div>
       {/* toolbar */}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <Input
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="Find episode…"
-          className="h-8 w-32 text-xs sm:w-40 sm:text-sm"
-        />
+      <div className="mb-3.5 flex flex-wrap items-center gap-2">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Cari episode…"
+            className="h-8 w-36 pl-8 text-xs sm:w-44 sm:text-sm"
+          />
+        </div>
         <div className="ml-auto flex items-center gap-1">
           <Button
             variant={view === "grid" ? "secondary" : "ghost"}
@@ -67,9 +70,9 @@ export function EpisodeList({ episodes }: Props) {
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="h-8 w-8 text-muted-foreground hover:text-foreground"
             aria-label="Reverse order"
-            title={reversed ? "Newest first" : "Oldest first"}
+            title={reversed ? "Urutkan: Terlama dulu" : "Urutkan: Terbaru dulu"}
             onClick={() => setReversed((r) => !r)}
           >
             {reversed ? <ArrowUpNarrowWide className="h-4 w-4" /> : <ArrowDownWideNarrow className="h-4 w-4" />}
@@ -78,8 +81,8 @@ export function EpisodeList({ episodes }: Props) {
       </div>
 
       {shown.length === 0 && (
-        <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-          No episode matches “{filter}”.
+        <p className="rounded-xl border border-dashed border-border/80 p-8 text-center text-sm text-muted-foreground">
+          Tidak ada episode yang cocok dengan “<span className="font-semibold text-foreground">{filter}</span>”.
         </p>
       )}
 
@@ -90,23 +93,39 @@ export function EpisodeList({ episodes }: Props) {
           ))}
         </div>
       ) : (
-        <div className="flex flex-col gap-1.5">
-          {shown.map((e) => (
-            <Link
-              key={e.episodeId}
-              href={`/watch/${e.episodeId}`}
-              className={cn(
-                "group flex items-center justify-between gap-3 rounded-lg border bg-card px-3.5 py-2.5 text-sm transition-colors hover:border-primary/60 hover:bg-accent",
-                watched.has(e.episodeId) && "opacity-70",
-              )}
-            >
-              <span className="flex min-w-0 items-center gap-2">
-                {watched.has(e.episodeId) && <Check className="h-3.5 w-3.5 shrink-0 text-emerald-500" />}
-                <span className="truncate">{e.title.replace(/subtitle indonesia/i, "").trim()}</span>
-              </span>
-              {e.date && <span className="shrink-0 text-xs text-muted-foreground">{e.date}</span>}
-            </Link>
-          ))}
+        <div className="flex flex-col gap-2">
+          {shown.map((e) => {
+            const isWatched = watched.has(e.episodeId);
+            return (
+              <Link
+                key={e.episodeId}
+                href={`/watch/${e.episodeId}`}
+                className={cn(
+                  "group flex items-center justify-between gap-3 rounded-lg border border-border/80 bg-card px-4 py-2.5 text-sm transition-all hover:border-primary/60 hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  isWatched && "opacity-75 bg-card/60",
+                )}
+              >
+                <span className="flex min-w-0 items-center gap-2.5">
+                  {isWatched ? (
+                    <Check className="h-4 w-4 shrink-0 text-emerald-500" />
+                  ) : (
+                    <Play className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-60 transition-colors group-hover:text-primary group-hover:opacity-100" />
+                  )}
+                  <span className="truncate font-medium text-foreground group-hover:text-primary">
+                    {e.title.replace(/subtitle indonesia/i, "").trim()}
+                  </span>
+                </span>
+                <div className="flex shrink-0 items-center gap-2">
+                  {isWatched && (
+                    <Badge variant="success" className="px-1.5 py-0 text-[10px]">
+                      Selesai
+                    </Badge>
+                  )}
+                  {e.date && <span className="text-xs text-muted-foreground">{e.date}</span>}
+                </div>
+              </Link>
+            );
+          })}
         </div>
       )}
     </div>
@@ -118,11 +137,11 @@ function EpisodeTile({ ep, watched }: { ep: EpisodeRef; watched: boolean }) {
     <Link
       href={`/watch/${ep.episodeId}`}
       className={cn(
-        "relative flex h-10 items-center justify-center rounded-md border bg-card text-sm font-medium transition-colors hover:border-primary/60 hover:bg-primary/10 hover:text-primary",
-        watched && "border-emerald-500/40 text-emerald-500/80",
+        "relative flex h-10 items-center justify-center rounded-lg border border-border/80 bg-card text-xs font-semibold transition-all hover:-translate-y-0.5 hover:border-primary/60 hover:bg-primary/10 hover:text-primary hover:shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-sm",
+        watched && "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
       )}
     >
-      {watched && <Check className="absolute left-1 top-1 h-3 w-3 text-emerald-500" />}
+      {watched && <Check className="absolute left-1.5 top-1.5 h-3 w-3 text-emerald-500" />}
       EP {ep.eps}
     </Link>
   );
