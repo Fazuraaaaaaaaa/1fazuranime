@@ -37,10 +37,10 @@ export const TTL: Record<CacheKind, number> = {
 
 /** Resolve the TTL for an arbitrary upstream sub-path (used by the proxy). */
 export function ttlForPath(path: string): number {
-  if (path.startsWith("server/")) return TTL.SERVER;
-  if (path.startsWith("episode/")) return TTL.EPISODE;
-  if (path.startsWith("anime/")) return TTL.DETAIL;
-  if (path.startsWith("search/")) return TTL.SEARCH;
+  if (path.startsWith("server/") || path.startsWith("samehadaku/server/")) return TTL.SERVER;
+  if (path.startsWith("episode/") || path.startsWith("samehadaku/episode/")) return TTL.EPISODE;
+  if (path.startsWith("anime/") || path.startsWith("samehadaku/anime/")) return TTL.DETAIL;
+  if (path.startsWith("search/") || path.startsWith("samehadaku/search/")) return TTL.SEARCH;
   return TTL.LIST;
 }
 
@@ -202,6 +202,31 @@ const EMBED_PATTERNS = [
       return m ? `https://www.mp4upload.com/embed-${m[1]}.html` : u;
     },
   },
+  {
+    test: /^https?:\/\/(?:[a-z0-9-]+\.)?icefile\.my\.id\/(?:embed|f|view)\/([\w-]+)/i,
+    toEmbed: (u: string) => {
+      const m = u.match(/\/(?:embed|f|view)\/([\w-]+)/i);
+      return m ? `https://beta.icefile.my.id/embed/${m[1]}` : u;
+    },
+  },
+  {
+    test: /^https?:\/\/(?:www\.)?blogger\.com\/video\.g\?token=([\w-]+)/i,
+    toEmbed: (u: string) => u,
+  },
+  {
+    test: /^https?:\/\/(?:www\.)?ok\.ru\/(?:videoembed|video)\/(\d+)/i,
+    toEmbed: (u: string) => {
+      const m = u.match(/\/(?:videoembed|video)\/(\d+)/i);
+      return m ? `https://ok.ru/videoembed/${m[1]}` : u;
+    },
+  },
+  {
+    test: /^https?:\/\/(?:www\.)?pixeldrain\.com\/(?:u|api\/file)\/([\w-]+)/i,
+    toEmbed: (u: string) => {
+      const m = u.match(/\/(?:u|api\/file)\/([\w-]+)/i);
+      return m ? `https://pixeldrain.com/u/${m[1]}` : u;
+    },
+  },
 ] as const;
 
 export interface ResolvedEmbed {
@@ -358,7 +383,7 @@ function refreshExternal(key: string, target: string): Promise<ResolvedEmbed> {
 
 const STREAM_BLOCKLIST = /(updesu|ondesu|desustream|odstream|odcdn|otakuwatch)/i;
 const MEGA_TITLE = /^mega(?:\.nz)?$/i;
-export const SUPPORTED_HOST_TITLE = /^(?:mega(?:\.nz)?|filedon|viking(?:file)?|acefile|vid\s*hide(?:pro)?|odvidhide|g(?:oogle)?\s*drive|mp4upload)$/i;
+export const SUPPORTED_HOST_TITLE = /^(?:mega(?:\.nz)?|filedon|viking(?:file)?|acefile|vid\s*hide(?:pro)?|odvidhide|g(?:oogle)?\s*drive|mp4upload|icefile|blogger|blogspot|pixeldrain|okru|ok\.ru)$/i;
 
 export function isMegaTitle(title: string): boolean {
   return MEGA_TITLE.test((title ?? "").trim());
@@ -373,17 +398,25 @@ export function normalizeHostTitle(title: string): string {
   if (/(?:vid\s*hide|odvidhide)/i.test(t)) return "Vidhide";
   if (/^g(?:oogle)?\s*drive/i.test(t)) return "Google Drive";
   if (/^mp4upload/i.test(t)) return "Mp4upload";
+  if (/^icefile/i.test(t)) return "Icefile";
+  if (/(?:blogger|blogspot)/i.test(t)) return "Blogger";
+  if (/^pixeldrain/i.test(t)) return "Pixeldrain";
+  if (/(?:okru|ok\.ru)/i.test(t)) return "OK.ru";
   return t;
 }
 
 const HOST_PRIORITY: Record<string, number> = {
   Mega: 1,
-  Filedon: 2,
-  VikingFile: 3,
-  Acefile: 4,
-  Vidhide: 5,
-  "Google Drive": 6,
-  Mp4upload: 7,
+  Icefile: 2,
+  Blogger: 3,
+  Filedon: 4,
+  VikingFile: 5,
+  Acefile: 6,
+  Vidhide: 7,
+  "Google Drive": 8,
+  Pixeldrain: 9,
+  "OK.ru": 10,
+  Mp4upload: 11,
 };
 
 export function isSupportedHost(title: string, url: string): boolean {
@@ -423,12 +456,9 @@ export function sanitizeWatchServers(episode: EpisodeData): WatchQualityGroup[] 
     }
   }
 
-  // Collect 1080p servers from download links that can be played in iframe (Mega, Filedon, VikingFile, Acefile, etc.).
+  // Collect backup servers from download links across all resolutions (1080p, 720p, 480p, 360p)
+  // that can be played in iframe (Mega, Icefile, Blogger, Filedon, VikingFile, Acefile, Vidhide, etc.).
   if (Array.isArray(episode?.downloadUrl?.qualities)) {
-    const seenUrls = new Set<string>();
-    const seenHosts = new Set<string>();
-    const ext1080Servers: WatchServerOption[] = [];
-
     // Prioritize MP4 over MKV if both exist for better browser player compatibility
     const sortedQualities = [...episode.downloadUrl.qualities].sort((a, b) => {
       const aMp4 = /mp4/i.test(a?.title ?? "") ? 1 : 0;
@@ -436,43 +466,51 @@ export function sanitizeWatchServers(episode: EpisodeData): WatchQualityGroup[] 
       return bMp4 - aMp4;
     });
 
-    for (const d of sortedQualities) {
-      if (!d || !/1080/i.test(d.title ?? "") || !Array.isArray(d.urls)) continue;
-      for (const u of d.urls) {
-        if (!u || !u.url) continue;
-        const isSupported = isSupportedHost(u.title ?? "", u.url);
-        if (!isSupported || seenUrls.has(u.url)) continue;
+    const TARGET_RESOLUTIONS = [1080, 720, 480, 360] as const;
 
-        const hostName = normalizeHostTitle(u.title ?? "");
-        // Deduplicate so each host (Mega, Filedon, VikingFile, Acefile) appears once in 1080p
-        if (seenHosts.has(hostName.toLowerCase())) continue;
+    for (const res of TARGET_RESOLUTIONS) {
+      const seenUrls = new Set<string>();
+      const seenHosts = new Set<string>();
+      const extServers: WatchServerOption[] = [];
 
-        seenHosts.add(hostName.toLowerCase());
-        seenUrls.add(u.url);
+      for (const d of sortedQualities) {
+        if (!d || extractQualityResolution(d.title ?? "") !== res || !Array.isArray(d.urls)) continue;
+        for (const u of d.urls) {
+          if (!u || !u.url) continue;
+          const isSupported = isSupportedHost(u.title ?? "", u.url);
+          if (!isSupported || seenUrls.has(u.url)) continue;
 
-        ext1080Servers.push({
-          kind: "ext",
-          serverId: `ext:${u.url}`,
-          title: hostName,
-          href: u.url,
-        });
+          const hostName = normalizeHostTitle(u.title ?? "");
+          // Deduplicate so each host appears once per resolution
+          if (seenHosts.has(hostName.toLowerCase())) continue;
+
+          seenHosts.add(hostName.toLowerCase());
+          seenUrls.add(u.url);
+
+          extServers.push({
+            kind: "ext",
+            serverId: `ext:${u.url}`,
+            title: hostName,
+            href: u.url,
+          });
+        }
       }
-    }
 
-    // Sort: Mega first, then Filedon, VikingFile, Acefile, etc.
-    ext1080Servers.sort((a, b) => (HOST_PRIORITY[a.title] ?? 99) - (HOST_PRIORITY[b.title] ?? 99));
+      // Sort external servers by host priority (Mega first, then Icefile, Blogger, Filedon, etc.)
+      extServers.sort((a, b) => (HOST_PRIORITY[a.title] ?? 99) - (HOST_PRIORITY[b.title] ?? 99));
 
-    const idx = groups.findIndex((g) => extractQualityResolution(g.title) === 1080);
-    if (idx !== -1) {
-      // Native 1080p exists — append non-duplicate ext servers so all working 1080p providers are available
-      const existingTitles = new Set(groups[idx].servers.map((s) => normalizeHostTitle(s.title).toLowerCase()));
-      const newServers = ext1080Servers.filter((s) => !existingTitles.has(normalizeHostTitle(s.title).toLowerCase()));
-      if (newServers.length > 0) {
-        groups[idx] = { ...groups[idx], servers: [...groups[idx].servers, ...newServers] };
+      const idx = groups.findIndex((g) => extractQualityResolution(g.title) === res);
+      if (idx !== -1) {
+        // Native group exists for this resolution — append non-duplicate backup servers
+        const existingTitles = new Set(groups[idx].servers.map((s) => normalizeHostTitle(s.title).toLowerCase()));
+        const newServers = extServers.filter((s) => !existingTitles.has(normalizeHostTitle(s.title).toLowerCase()));
+        if (newServers.length > 0) {
+          groups[idx] = { ...groups[idx], servers: [...groups[idx].servers, ...newServers] };
+        }
+      } else if (extServers.length > 0) {
+        // No native group existed for this resolution — create it with backup servers
+        groups.push({ title: `${res}p`, servers: extServers });
       }
-    } else if (ext1080Servers.length > 0) {
-      // No native 1080p — add synthesized 1080p group
-      groups.push({ title: "1080p", servers: ext1080Servers });
     }
   }
 

@@ -23,6 +23,7 @@ const ALLOWED = [
   /^anime\/[\w.-]+$/,
   /^episode\/[\w.-]+$/,
   /^server\/[\w-]+$/,
+  /^samehadaku\/[\w./-]+$/,
   /^search\/[\w+.-]+$/,
   /^genre$/,
   /^genre\/[\w-]+$/,

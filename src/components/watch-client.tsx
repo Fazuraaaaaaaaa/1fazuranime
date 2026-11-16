@@ -82,7 +82,12 @@ export function WatchClient({ episode, episodes, slug, groups }: Props) {
           const r = await proxyGet<{ url: string; host: string }>("resolve", { url: s.href });
           return r.data.url;
         }
-        const r = await proxyGet<ServerEmbed>(`server/${s.serverId}`);
+        const endpoint = s.href && s.href.startsWith("/samehadaku/")
+          ? s.href.replace(/^\//, "")
+          : s.serverId.startsWith("samehadaku:")
+          ? s.serverId.replace(/^samehadaku:/, "samehadaku/server/")
+          : `server/${s.serverId}`;
+        const r = await proxyGet<ServerEmbed>(endpoint);
         return r.data.url;
       },
       retry: false,

@@ -5,8 +5,11 @@ import type { EpisodeData } from "./types";
 describe("ttlForPath", () => {
   it("resolves correct TTL for each route category", () => {
     expect(ttlForPath("server/test-srv")).toBe(TTL.SERVER);
+    expect(ttlForPath("samehadaku/server/srv-same")).toBe(TTL.SERVER);
     expect(ttlForPath("episode/ep-1")).toBe(TTL.EPISODE);
+    expect(ttlForPath("samehadaku/episode/ep-1")).toBe(TTL.EPISODE);
     expect(ttlForPath("anime/naruto")).toBe(TTL.DETAIL);
+    expect(ttlForPath("samehadaku/anime/naruto")).toBe(TTL.DETAIL);
     expect(ttlForPath("search/naruto+shippuden")).toBe(TTL.SEARCH);
     expect(ttlForPath("home")).toBe(TTL.LIST);
     expect(ttlForPath("ongoing-anime")).toBe(TTL.LIST);
@@ -365,5 +368,71 @@ describe("sanitizeWatchServers", () => {
     expect(groups[0].servers).toHaveLength(2);
     expect(groups[0].servers[0].href).toBe("https://filedon.co/view/dup1");
     expect(groups[0].servers[1].href).toBe("https://vikingfile.com/f/vik1");
+  });
+
+  it("injects backup servers (Mega, Acefile, Icefile, Blogger) across 720p, 480p, and 360p", () => {
+    const mockEpisode: EpisodeData = {
+      title: "Multi-Res Episode",
+      animeId: "multi-res",
+      defaultStreamingUrl: "",
+      server: {
+        qualities: [
+          {
+            title: "720p",
+            serverList: [
+              { serverId: "otakuwatch-720", title: "otakuwatch", href: "/server/otakuwatch" }, // blocked by blocklist
+            ],
+          },
+          {
+            title: "480p",
+            serverList: [
+              { serverId: "vidhide-480", title: "vidhide", href: "https://vidhide.com/v/123" },
+            ],
+          },
+        ],
+      },
+      downloadUrl: {
+        qualities: [
+          {
+            title: "MP4 720p",
+            urls: [
+              { title: "Mega", url: "https://mega.nz/file/mega720#key720" },
+              { title: "Icefile", url: "https://beta.icefile.my.id/f/ice720" },
+            ],
+          },
+          {
+            title: "MP4 480p",
+            urls: [
+              { title: "Mega", url: "https://mega.nz/file/mega480#key480" },
+              { title: "Acefile", url: "https://acefile.co/f/480123" },
+            ],
+          },
+        ],
+      },
+      hasPrevEpisode: false,
+      hasNextEpisode: false,
+      prevEpisode: null,
+      nextEpisode: null,
+    };
+
+    const groups = sanitizeWatchServers(mockEpisode);
+    expect(groups).toHaveLength(2);
+
+    // 720p had otakuwatch (blocked), so now it is powered by Mega and Icefile backup servers
+    const g720 = groups.find((g) => g.title === "720p");
+    expect(g720).toBeDefined();
+    expect(g720?.servers).toEqual([
+      { kind: "ext", serverId: "ext:https://mega.nz/file/mega720#key720", title: "Mega", href: "https://mega.nz/file/mega720#key720" },
+      { kind: "ext", serverId: "ext:https://beta.icefile.my.id/f/ice720", title: "Icefile", href: "https://beta.icefile.my.id/f/ice720" },
+    ]);
+
+    // 480p had native vidhide; Mega and Acefile are appended as non-duplicate backup servers
+    const g480 = groups.find((g) => g.title === "480p");
+    expect(g480).toBeDefined();
+    expect(g480?.servers).toEqual([
+      { kind: "server", serverId: "vidhide-480", title: "vidhide", href: "https://vidhide.com/v/123" },
+      { kind: "ext", serverId: "ext:https://mega.nz/file/mega480#key480", title: "Mega", href: "https://mega.nz/file/mega480#key480" },
+      { kind: "ext", serverId: "ext:https://acefile.co/f/480123", title: "Acefile", href: "https://acefile.co/f/480123" },
+    ]);
   });
 });
